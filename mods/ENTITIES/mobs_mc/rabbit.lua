@@ -136,6 +136,7 @@ core.register_on_mods_loaded (function ()
 		"FrozenPeaks",
 		"FrozenRiver",
 		"Grove",
+		"DappledForest",
 		"IceSpikes",
 		"JaggedPeaks",
 		"SnowyBeach",
@@ -476,6 +477,7 @@ local rabbit_spawner_woody = table.merge (mobs_mc.animal_spawner, {
 	pack_min = 2,
 	pack_max = 3,
 	biomes = {
+		"DappledForest",
 		"FlowerForest",
 		"OldGrowthPineTaiga",
 		"OldGrowthSpruceTaiga",

@@ -1,0 +1,18 @@
+# Copy this file to local/friends-server.conf before editing.
+# Use exact Luanti player names. Separate friends with commas, e.g. Alex, Sam_2.
+# The host is included automatically.
+name =
+mcl_friends_allowed_names =
+mcl_friends_only = true
+
+# Set both fields for one new account at a time, starting with the host.
+# Give each account a fresh temporary password and change it after joining.
+# Clear both fields when registration is finished.
+mcl_friends_invited_name =
+default_password =
+disallow_empty_password = true
+server_announce = false
+
+# New worlds use Mineclonia's custom map generator, which includes Dappled Forest.
+mg_name = singlenode
+mcl_playersSleepingPercentage = 0

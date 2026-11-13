@@ -1,2 +1,6 @@
 .* export-ignore
-tools export-ignore
+tools/** export-ignore
+tools/Conversion_Table.csv -export-ignore
+tools/Import-JavaTextures.ps1 -export-ignore
+tools/Java_Texture_Overrides.csv -export-ignore
+tools/Start-FriendsServer.ps1 -export-ignore

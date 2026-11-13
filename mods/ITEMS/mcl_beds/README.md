@@ -19,6 +19,8 @@ To sleep, rightclick the bed.
 Another feature is a controlled respawning. If you have slept in bed your respawn point is set to the beds location and you will respawn there after
 death.
 
-Use the `mcl_playersSleepingPercentage` setting to enable/disable night skipping or set a percentage of how many players need to sleep to skip the night.
+Use `mcl_playersSleepingPercentage` to set the percentage of Overworld players
+who must sleep to skip the night. Set it to `0` for one-player sleep or above
+`100` to disable night skipping.
 
 mcl_beds.is_night([ time of day ]) - returns wether it's night with optional argument of a mineclonia time of day value between 0 and 1

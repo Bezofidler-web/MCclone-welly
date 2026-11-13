@@ -5,6 +5,9 @@ local pigman = {
 	description = S("Zombified Piglin"),
 	textures = {{ "" }},
 	after_activate = function(self)
+		if self.name == "mobs_mc:baby_pigman" then
+			self.child = true
+		end
 		mcl_util.replace_mob(self.object, "mobs_mc:zombified_piglin")
 	end,
 	hp_min = 0,

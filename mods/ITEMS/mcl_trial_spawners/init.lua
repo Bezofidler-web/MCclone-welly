@@ -249,29 +249,32 @@ local function prune_invalid_objectrefs(list)
 	end
 end
 
+local function get_total_spawn_limit(meta, player_count, is_ominous)
+	local base = meta:get_int("base_total_mobs")
+	local additional = math.floor((player_count - 1) * meta:get_float("total_mobs_added_per_player"))
+	local mobdef = mcl_mobs.registered_mobs[meta:get_string("mob")]
+	if is_ominous and meta:get_string("ominous_base_total_mobs") ~= "" then
+		base = meta:get_int("ominous_base_total_mobs")
+	elseif is_ominous and mobdef and not mobdef.wears_armor then
+		return (base + additional) * 2
+	end
+	return base + additional
+end
+
 local function is_trial_complete(pos, meta, player_count, is_ominous)
-	local total_spawn_limit = (player_count - 1) * math.floor(meta:get_float("total_mobs_added_per_player")) + meta:get_int("base_total_mobs")
+	local total_spawn_limit = get_total_spawn_limit(meta, player_count, is_ominous)
 	local total_mobs_spawned = meta:get_int("total_mobs_spawned")
 	local hash = core.hash_node_position(pos)
 	local spawned = trial_spawners_spawned_mobs[hash] or {}
 
 	prune_invalid_objectrefs(spawned)
 
-	if is_ominous and not mcl_mobs.registered_mobs[meta:get_string("mob")].wears_armor then
-		total_spawn_limit = total_spawn_limit * 2
-	end
-
 	return total_mobs_spawned >= total_spawn_limit and #spawned == 0
 end
 
 local function can_trial_spawner_spawn_mobs(pos, meta, player_count, is_ominous)
-	local total_spawn_limit = (player_count - 1) * math.floor(meta:get_float("total_mobs_added_per_player")) + meta:get_int("base_total_mobs")
+	local total_spawn_limit = get_total_spawn_limit(meta, player_count, is_ominous)
 	local total_mobs_spawned = meta:get_int("total_mobs_spawned")
-
-	if is_ominous and mcl_mobs.registered_mobs[meta:get_string("mob")] and
-			(not mcl_mobs.registered_mobs[meta:get_string("mob")].wears_armor) then
-		total_spawn_limit = total_spawn_limit * 2
-	end
 
 	if total_mobs_spawned >= total_spawn_limit then
 		return false
@@ -279,7 +282,7 @@ local function can_trial_spawner_spawn_mobs(pos, meta, player_count, is_ominous)
 
 	local hash = core.hash_node_position(pos)
 	local spawned = trial_spawners_spawned_mobs[hash] or {}
-	local simultaneous_mobs_limit = (player_count - 1) * meta:get_int("simultaneous_mobs_added_per_player")
+	local simultaneous_mobs_limit = math.floor((player_count - 1) * meta:get_float("simultaneous_mobs_added_per_player"))
 		+ meta:get_int("base_simultaneous_mobs")
 		+ (is_ominous and 1 or 0)
 
@@ -455,6 +458,19 @@ local function trial_spawner_step(pos, meta)
 	end
 end
 
+local spawner_defaults = {
+	last_activation = "0",
+	last_spawn = "0",
+	last_item_spawner = "0",
+	base_total_mobs = "6",
+	total_mobs_added_per_player = "2",
+	active_players = core.serialize({}),
+	base_simultaneous_mobs = "2",
+	simultaneous_mobs_added_per_player = "1",
+	total_mobs_spawned = "0",
+	spawn_interval = "2",
+}
+
 local tpl = {
 	description = S("Trial spawner"),
 	_tt_help = S("Spawns mobs when players are nearby"),
@@ -480,21 +496,12 @@ local tpl = {
 
 		local meta = core.get_meta(pos)
 
-		meta:set_int("last_activation", 0)
-		meta:set_int("last_spawn", 0)
-		meta:set_int("last_item_spawner", 0)
-
-		meta:set_int("base_total_mobs", 6)
-		meta:set_float("total_mobs_added_per_player", 2)
-
-		meta:set_string("active_players", core.serialize({}))
-
-		meta:set_int("base_simultaneous_mobs", 2)
-		meta:set_int("simultaneous_mobs_added_per_player", 1)
-
-		meta:set_int("total_mobs_spawned", 0)
-
-		meta:set_float("spawn_interval", 2)
+		-- Structure templates restore the configured trial before invoking this callback.
+		for key, value in pairs(spawner_defaults) do
+			if meta:get_string(key) == "" then
+				meta:set_string(key, value)
+			end
+		end
 	end,
 	on_timer = function(pos)
 		trial_spawner_step(pos, core.get_meta(pos))

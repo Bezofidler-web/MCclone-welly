@@ -1295,6 +1295,15 @@ mcl_maps.register_explorer_map ("mcl_maps:jungle_explorer_map", "#848484", {
 	_skip_existing_chunks = true,
 })
 
+mcl_maps.register_explorer_map ("mcl_maps:abandoned_camp_map", "#9b6943", {
+	description = S ("Abandoned Camp Map"),
+	_explorer_map_structures = {
+		"mcl_levelgen:abandoned_camp",
+	},
+	_treasure_symbol = "mcl_maps_abandoned_camp_marker.png",
+	_skip_existing_chunks = true,
+})
+
 local storage = core.get_mod_storage ()
 
 function mcl_maps.initialize_explorer_map (pos, stack)

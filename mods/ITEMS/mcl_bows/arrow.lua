@@ -274,10 +274,14 @@ function ARROW_ENTITY:remove()
 end
 
 -- Process hitting a non-player object.  Return true to play damage particle and sound.
-function ARROW_ENTITY:on_hit_object(obj, lua, _)
+function ARROW_ENTITY:on_hit_object(obj, lua, ray_hit)
 	if not lua or (not lua.is_mob and not lua._hittable_by_projectile)
 	or lua.name == "mobs_mc:enderman" then
 		return false
+	end
+	if lua._mcl_deflect_projectile
+		and lua:_mcl_deflect_projectile(self.object, ray_hit.intersection_point) then
+		return "break"
 	end
 	self:apply_effects(obj)
 	return true
@@ -556,7 +560,7 @@ function ARROW_ENTITY:on_step(dtime, moveresult)
 	mcl_burning.tick(selfobj, dtime, self)
 
 	-- Look for colliding nodes within moveresult.
-	if result ~= "stop" then
+	if result ~= "stop" and result ~= "break" then
 		local old_vel, new_pos, collision_pos
 			= self:find_first_collision (moveresult)
 		if collision_pos then
@@ -571,7 +575,7 @@ function ARROW_ENTITY:on_step(dtime, moveresult)
 	end
 
 	-- Predicting froward motion in anticipation of lag.  Pos and vel could be changed by shield.
-	if result ~= "stop" then
+	if result ~= "stop" and result ~= "break" then
 		local vel = selfobj:get_velocity()
 		self_pos = selfobj:get_pos()
 		local predict = vector.add(self_pos, vector.multiply(vector.copy(vel), 0.05))
@@ -587,7 +591,7 @@ function ARROW_ENTITY:on_step(dtime, moveresult)
 				end
 			end
 			result = self:on_intersect(ray_hit) -- Hit mob or player.
-			if result == "stop" then break end
+			if result == "stop" or result == "break" then break end
 		end
 	end
 
@@ -600,7 +604,7 @@ function ARROW_ENTITY:on_step(dtime, moveresult)
 			selfobj:set_rotation({ x = 0, y = yaw, z = pitch })
 		end
 	end
-	self._lastpos = self_pos
+	self._lastpos = result == "break" and selfobj:get_pos() or self_pos
 end
 
 function ARROW_ENTITY:step_on_stuck(last_pos, dtime)

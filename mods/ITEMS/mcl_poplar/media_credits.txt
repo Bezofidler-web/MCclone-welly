@@ -1,0 +1,10 @@
+textures/mcl_poplar_poplar_shelf.png
+
+Mineclonia's Pale Oak Shelf atlas (../mcl_pale_oak/textures/mcl_pale_oak_shelf.png)
+recoloured with the palette from textures/mcl_poplar_planks.png. The original
+atlas layout was retained for the normal and powered shelf meshes.
+
+The source textures are from the Mineclonia contributors. See ../../../LEGAL.md
+for the project's media credits, including Pixel Perfection by XSSheep and
+Pixel Perfection Legacy by Nova Wostra.
+License: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).

@@ -127,7 +127,7 @@ end
 if core.settings:get_bool("enable_bed_night_skip") == false then
 	bed_desc = bed_desc .. "\n" .. S("In this world, going to bed won't skip the night, but it will skip thunderstorms.")
 else
-	bed_desc = bed_desc .. "\n" .. S("Sleeping allows you to skip the night. The night is skipped when all players in this world went to sleep. The night is skipped after sleeping for a few seconds. Thunderstorms can be skipped in the same manner.")
+	bed_desc = bed_desc .. "\n" .. S("When enough players are in bed, sleeping skips the night or a thunderstorm after a few seconds.")
 end
 
 local default_sounds = mcl_sounds.node_sound_wood_defaults({

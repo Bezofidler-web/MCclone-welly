@@ -1,9 +1,9 @@
 local S = core.get_translator(core.get_current_modname())
 local F = core.formspec_escape
 
-local player_in_bed = 0
 local is_sp = core.is_singleplayer()
 local straw_bed_pos = {}
+local sleep_job
 
 -- Helper functions
 
@@ -25,24 +25,25 @@ local function players_in_bed_setting()
 	return tonumber(core.settings:get("mcl_playersSleepingPercentage")) or 100
 end
 
-local function is_night_skip_enabled()
-	return players_in_bed_setting() <= 100
+local function is_in_overworld(player)
+	local pos = player:get_pos()
+	return pos and mcl_worlds.pos_to_dimension(pos) == "overworld"
 end
 
-local function players_in_overworld(players)
-	return table.count(players, function(_, player)
-		return mcl_worlds.pos_to_dimension(player:get_pos()) == "overworld"
-	end)
-end
-
-local function check_in_beds(players)
-	if not players then
-		players = core.get_connected_players()
+local function sleep_counts(leaving_name)
+	local sleeping, total = 0, 0
+	for _, player in ipairs(core.get_connected_players()) do
+		local name = player:get_player_name()
+		if name ~= leaving_name and is_in_overworld(player) then
+			total = total + 1
+			if mcl_beds.player[name] then
+				sleeping = sleeping + 1
+			end
+		end
 	end
-	if player_in_bed <= 0 then
-		return false
-	end
-	return players_in_bed_setting() <= (player_in_bed * 100) / players_in_overworld(players)
+	local percentage = players_in_bed_setting()
+	local required = math.max(1, math.ceil(math.min(percentage, 100) * total / 100))
+	return sleeping, required, percentage
 end
 
 function mcl_beds.is_night(tod)
@@ -134,7 +135,6 @@ local function lay_down(player, pos, bed_pos, is_straw_bed)
 	mcl_beds.player[name] = 1
 	mcl_beds.pos[name] = pos
 	mcl_beds.bed_pos[name] = is_straw_bed and bed_pos or bed_pos2
-	player_in_bed = player_in_bed + 1
 
 	if is_straw_bed then
 		straw_bed_pos[name] = bed_pos
@@ -166,44 +166,29 @@ local function lay_down(player, pos, bed_pos, is_straw_bed)
 	return true
 end
 
-local function stand_up(player, pos, bed_pos, skip)
+local function stand_up(player, leaving, keep_position)
 	local name = player:get_player_name()
-	local hud_flags = player:hud_get_flags()
-
-	if not player or not name then
-		return false
-	end
-
-	local p = mcl_beds.pos[name] or nil
-	if mcl_beds.player[name] then
-		mcl_beds.player[name] = nil
-		player_in_bed = player_in_bed - 1
-	end
+	local previous_pos = mcl_beds.pos[name]
+	mcl_beds.player[name] = nil
 	mcl_beds.pos[name] = nil
 	mcl_beds.bed_pos[name] = nil
-	if p then
-		player:set_pos(p)
+	if previous_pos and not keep_position then
+		player:set_pos(previous_pos)
 	end
 
 	local straw_pos = straw_bed_pos[name]
-	if straw_pos then
-		local node = core.get_node(straw_pos)
-		local dir = core.facedir_to_dir(node.param2)
-		local top_pos = vector.add(straw_pos, dir)
-
+	straw_bed_pos[name] = nil
+	if straw_pos and core.get_node(straw_pos).name == "mcl_beds:straw_bed" then
+		-- The node's after_destruct callback removes the other half.
 		core.remove_node(straw_pos)
-		if core.get_item_group(top_pos.name, "bed_top") > 1 then
-			core.remove_node(top_pos)
-		end
-		straw_bed_pos[name] = nil
 	end
 
-	-- skip here to prevent sending player specific changes (used for leaving players)
-	if skip then
-		return false
+	if leaving then
+		return
 	end
 
 	-- physics, eye_offset, etc
+	local hud_flags = player:hud_get_flags()
 	player:set_eye_offset({x = 0, y = 0, z = 0}, {x = 0, y = 0, z = 0})
 	if player:get_look_vertical() > 0 then
 		player:set_look_vertical(0)
@@ -223,22 +208,23 @@ end
 mcl_player.register_globalstep_slow(function(player)
 	local name = player:get_player_name()
 	if mcl_beds.player[name] then
-		local player_pos = player:get_pos()
+		if not is_in_overworld(player) then
+			mcl_beds.kick_player(player)
+			return
+		end
 		local bed_pos = mcl_beds.bed_pos[name]
 		local bed_node = core.get_node(bed_pos)
 		local bed_center_pos = bed_pos + vector.multiply(core.facedir_to_dir(bed_node.param2), 0.5)
-		bed_center_pos.y = player_pos.y
+		bed_center_pos.y = player:get_pos().y
 
 		player:add_velocity(vector.multiply(-player:get_velocity(), 0.75))
 		player:set_pos(bed_center_pos)
 	end
 end)
 
-local function update_formspecs(finished, players)
-	local ges = players_in_overworld(players or core.get_connected_players())
+local function update_formspecs(sleeping, required, percentage)
 	local form_n = "size[12,5;true]"
-	local all_in_bed = ges and players_in_bed_setting() <= (player_in_bed * 100) / ges or 0
-	local night_skip = is_night_skip_enabled()
+	local night_skip = percentage <= 100
 	local button_leave = "button_exit[4,3;4,0.75;leave;"..F(S("Leave bed")).."]"
 	local button_abort = "button_exit[4,3;4,0.75;leave;"..F(S("Abort sleep")).."]"
 	local bg_presleep = "bgcolor[#00000080;true]"
@@ -249,27 +235,22 @@ local function update_formspecs(finished, players)
 
 	form_n = form_n .. chatbox .. chatsubmit --because these should be in the formspec in ANY case, they might as well be added here already
 
-	if finished then
-		for name,_ in pairs(mcl_beds.player) do
-			core.close_formspec(name, "mcl_beds_form")
-		end
-		return
-	elseif not is_sp then
-		local text = S("Players in bed: @1/@2", player_in_bed, ges)
+	if not is_sp then
+		local text = S("Players in bed: @1/@2", sleeping, required)
 		if not night_skip then
 			text = text .. "\n" .. S("Note: Night skip is disabled.")
 			form_n = form_n .. bg_presleep
 			form_n = form_n .. button_leave
-		elseif all_in_bed then
+		elseif sleeping >= required then
 			text = text .. "\n" .. S("You're sleeping.")
 			form_n = form_n .. bg_sleep
 			form_n = form_n .. button_abort
 		else
 			local comment
-			if players_in_bed_setting() == 100 then
+			if percentage == 100 then
 				comment = S("You will fall asleep when all players are in bed.")
 			else
-				comment = S("You will fall asleep when @1% of all players are in bed.", players_in_bed_setting())
+				comment = S("You will fall asleep when @1% of all players are in bed.", percentage)
 			end
 			text = text .. "\n" .. comment
 			form_n = form_n .. bg_presleep
@@ -296,46 +277,79 @@ local function update_formspecs(finished, players)
 	end
 end
 
+local function cancel_sleep_job()
+	if sleep_job then
+		sleep_job:cancel()
+		sleep_job = nil
+	end
+end
+
+local function refresh_sleep(leaving_name)
+	if not next(mcl_beds.player) then
+		cancel_sleep_job()
+		return
+	end
+
+	local sleeping, required, percentage = sleep_counts(leaving_name)
+	if percentage > 100 or sleeping < required then
+		cancel_sleep_job()
+	elseif not sleep_job then
+		sleep_job = core.after(5, function()
+			sleep_job = nil
+			if not mcl_beds.sleep() then
+				refresh_sleep()
+			end
+		end)
+	end
+	update_formspecs(sleeping, required, percentage)
+	return sleeping, required
+end
+
 -- Public functions
 
 -- Handle environment stuff related to sleeping: skip night and thunderstorm
 function mcl_beds.sleep()
-	if is_night_skip_enabled() then
-		if mcl_weather.get_weather() == "thunder" then
-			local endtime = (mcl_weather.end_time - core.get_gametime()) * 72 / 24000
-			core.set_timeofday((core.get_timeofday() + endtime) %1)
-			if mcl_beds.is_night() then
-				mcl_beds.skip_night()
-				mcl_beds.kick_players()
-			else
-				mcl_beds.kick_players()
-			end
-			-- Always clear weather
-			mcl_weather.change_weather("none")
-		elseif mcl_beds.is_night() then
-			mcl_beds.skip_night()
-			mcl_beds.kick_players()
-			mcl_weather.change_weather("none")
-		end
+	local sleeping, required, percentage = sleep_counts()
+	if percentage > 100 or sleeping < required then
+		return false
 	end
+
+	local thunder = mcl_weather.get_weather() == "thunder"
+	if thunder then
+		local endtime = (mcl_weather.end_time - core.get_gametime()) * 72 / 24000
+		core.set_timeofday((core.get_timeofday() + endtime) % 1)
+	end
+	local night = mcl_beds.is_night()
+	if night then
+		mcl_beds.skip_night()
+	end
+	-- Wake the sleepers even if the sun rose during the countdown.
+	mcl_beds.kick_players()
+	if thunder or night then
+		mcl_weather.change_weather("none")
+	end
+	return true
 end
 
 -- Throw all players out of bed
 function mcl_beds.kick_players()
+	cancel_sleep_job()
 	for name, _ in pairs(mcl_beds.player) do
 		local player = core.get_player_by_name(name)
-		stand_up(player, nil, nil, false)
+		if player then
+			stand_up(player, false, not is_in_overworld(player))
+			core.close_formspec(name, "mcl_beds_form")
+		end
 	end
-	update_formspecs(false)
 end
 
 -- Throw a player out of bed
 function mcl_beds.kick_player(player)
 	local name = player:get_player_name()
 	if mcl_beds.player[name] then
-		stand_up(player, nil, nil, false)
-		update_formspecs(false)
+		stand_up(player, false, not is_in_overworld(player))
 		core.close_formspec(name, "mcl_beds_form")
+		refresh_sleep()
 	end
 end
 
@@ -358,22 +372,10 @@ function mcl_beds.get_bed_bottom (pos)
 	return bed_bottom
 end
 
-local function recheck_in_beds()
-	if check_in_beds() then
-		update_formspecs(is_night_skip_enabled())
-		mcl_beds.sleep()
-	end
-
-	-- check again (a player can change the dimension)
-	if player_in_bed > 0 then
-		update_formspecs(false)
-		core.after(5, recheck_in_beds)
-	end
-end
-
 function mcl_beds.on_rightclick(pos, player, is_top, is_straw_bed)
 	-- Anti-Inception: Don't allow to sleep while you're sleeping
-	if player:get_meta():get_string("mcl_beds:sleeping") == "true" then
+	local name = player:get_player_name()
+	if mcl_beds.player[name] or player:get_meta():get_string("mcl_beds:sleeping") == "true" then
 		return
 	end
 	local dim = mcl_worlds.pos_to_dimension(pos)
@@ -391,41 +393,22 @@ function mcl_beds.on_rightclick(pos, player, is_top, is_straw_bed)
 		return mcl_util.return_itemstack_if_alive(player)
 		-- returning the old itemstack here would result in it still being in hand *after* death
 	end
-	local name = player:get_player_name()
-	local ppos = player:get_pos()
-
-	-- move to bed
-	if not mcl_beds.player[name] then
-		local message
-		if is_top then
-			message = select(2, lay_down(player, ppos, pos, is_straw_bed))
-		else
-			local other = mcl_beds.get_bed_top (pos)
-			message = select(2, lay_down(player, ppos, other, is_straw_bed))
-		end
+	local bed_pos = is_top and pos or mcl_beds.get_bed_top(pos)
+	local entered, message = lay_down(player, player:get_pos(), bed_pos, is_straw_bed)
+	if not entered then
 		if message then
 			mcl_title.set(player, "actionbar", {text=message, color="white", stay=60})
-		else -- someone just successfully entered a bed
-			local connected_players = core.get_connected_players()
-			local ges = players_in_overworld(connected_players)
-			local sleep_hud_message = S("@1/@2 players currently in bed.", player_in_bed, math.ceil(players_in_bed_setting() * ges / 100))
-			for _, player in pairs(connected_players) do
-				-- only send message to players not sleeping and in the "overworld"
-				if not mcl_beds.player[player:get_player_name()] and mcl_worlds.pos_to_dimension(player:get_pos()) == "overworld" then
-					-- clear, old message is still being displayed
-					if mcl_title.params_get(player) then mcl_title.clear(player) end
-					mcl_title.set(player, "actionbar", {text=sleep_hud_message, color="white", stay=60})
-				end
-			end
 		end
-	else
-		lay_down(player, nil, nil, is_straw_bed)
+		return
 	end
 
-	update_formspecs(false)
-	-- skip the night and let all players stand up
-	if player_in_bed > 0 then
-		core.after(5, recheck_in_beds)
+	local sleeping, required = refresh_sleep()
+	local sleep_hud_message = S("@1/@2 players currently in bed.", sleeping, required)
+	for _, connected in ipairs(core.get_connected_players()) do
+		if not mcl_beds.player[connected:get_player_name()] and is_in_overworld(connected) then
+			if mcl_title.params_get(connected) then mcl_title.clear(connected) end
+			mcl_title.set(connected, "actionbar", {text=sleep_hud_message, color="white", stay=60})
+		end
 	end
 end
 
@@ -439,23 +422,23 @@ core.register_on_joinplayer(function(player)
 
 	playerphysics.remove_physics_factor(player, "speed", "mcl_beds:sleeping")
 	playerphysics.remove_physics_factor(player, "jump", "mcl_beds:sleeping")
-	update_formspecs(false)
+	refresh_sleep()
 end)
 
 core.register_on_leaveplayer(function(player)
-	stand_up(player, nil, nil, true)
-	local players = core.get_connected_players()
 	local name = player:get_player_name()
-	for n, player in ipairs(players) do
-		if player:get_player_name() == name then
-			players[n] = nil
-			break
-		end
+	if mcl_beds.player[name] then
+		stand_up(player, true)
 	end
-	if player_in_bed > 0 then
-		core.after(5, recheck_in_beds)
+	refresh_sleep(name)
+end)
+
+mcl_worlds.register_on_dimension_change(function(player)
+	if mcl_beds.player[player:get_player_name()] and not is_in_overworld(player) then
+		mcl_beds.kick_player(player)
+	else
+		refresh_sleep()
 	end
-	update_formspecs(false, players)
 end)
 
 local message_rate_limit = tonumber(core.settings:get("chat_message_limit_per_10sec")) or 8 --NEVER change this! if this was java, i would've declared it as final
@@ -522,8 +505,7 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 	end
 
 	if fields.quit or fields.leave then
-		stand_up(player, nil, nil, false)
-		update_formspecs(false)
+		mcl_beds.kick_player(player)
 	end
 end)
 

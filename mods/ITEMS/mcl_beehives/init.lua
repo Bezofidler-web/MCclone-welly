@@ -1,94 +1,79 @@
-------------------
----- Beehives ----
-------------------
-
--- Variables
 local S = core.get_translator(core.get_current_modname())
-local abm_nodes = { "mcl_beehives:beehive", "mcl_beehives:bee_nest" }
+mcl_beehives = {}
+local path = core.get_modpath(core.get_current_modname())
+dofile(path .. "/hive.lua")
+dofile(path .. "/bee.lua")
 
--- Function to allow harvesting honey and honeycomb from the beehive and bee nest.
-local honey_harvest = function(pos, node, player, itemstack)
-	local inv = player:get_inventory()
-	local shears = core.get_item_group(player:get_wielded_item():get_name(), "shears") > 0
-	local bottle = player:get_wielded_item():get_name() == "mcl_potions:glass_bottle"
-	local original_block = "mcl_beehives:bee_nest"
-	local is_creative = core.is_creative_enabled(player:get_player_name())
-	if node.name == "mcl_beehives:beehive_5" then
-		original_block = "mcl_beehives:beehive"
+local function honey_harvest(pos, node, player, itemstack)
+	if not player or not player:is_player() then
+		return itemstack
+	end
+	local name = player:get_player_name()
+	local wield_name = itemstack:get_name()
+	local shears = core.get_item_group(wield_name, "shears") > 0
+	local bottle = wield_name == "mcl_potions:glass_bottle"
+	if not shears and not bottle then
+		return itemstack
+	end
+	if core.is_protected(pos, name) then
+		core.record_protection_violation(pos, name)
+		return itemstack
 	end
 
-	local campfire_area = vector.offset(pos, 0, -5, 0)
-	local campfire = core.find_nodes_in_area(pos, campfire_area, "group:lit_campfire")
-
-	if bottle or shears then
-		local name = player:get_player_name()
-		if core.is_protected(pos, name) then
-			core.record_protection_violation(pos, name)
-			return itemstack
-		end
-		if bottle then
-			local honey = "mcl_honey:honey_bottle"
-			if inv:room_for_item("main", honey) then
-				inv:add_item("main", "mcl_honey:honey_bottle")
-				if not is_creative then
-					itemstack:take_item()
-				end
-				if campfire[1] then
-					awards.unlock(player:get_player_name(), "mcl:bee_our_guest")
-				end
+	local creative = core.is_creative_enabled(name)
+	local smoky = mcl_beehives.is_smoky(pos)
+	mcl_beehives.initialize(pos, node)
+	if bottle then
+		local honey = ItemStack("mcl_honey:honey_bottle")
+		if not creative and itemstack:get_count() == 1 then
+			itemstack = honey
+		else
+			local left = player:get_inventory():add_item("main", honey)
+			if not left:is_empty() then
+				core.add_item(pos, left)
 			end
-		else --Must be shears
-			core.add_item(pos, "mcl_honey:honeycomb 3")
-			if not core.is_creative_enabled(player:get_player_name()) then
-				local idef = itemstack:get_definition()
-				itemstack:add_wear_by_uses(mcl_util.calculate_durability(itemstack))
-				if itemstack:get_count() == 0 and idef.sound and idef.sound.breaks then
-					core.sound_play(idef.sound.breaks, {pos=player:get_pos(), gain=0.5}, true)
-				end
+			if not creative then itemstack:take_item() end
+		end
+		if smoky then awards.unlock(name, "mcl:bee_our_guest") end
+	else
+		core.add_item(pos, "mcl_honey:honeycomb 3")
+		if not creative then
+			local def = itemstack:get_definition()
+			itemstack:add_wear_by_uses(mcl_util.calculate_durability(itemstack))
+			if itemstack:is_empty() and def.sound and def.sound.breaks then
+				core.sound_play(def.sound.breaks, {pos = player:get_pos(), gain = 0.5}, true)
 			end
 		end
-		--TODO: damage type = "mob" since this is supposed to be done by bee mobs which aren't a thing yet
-		--Once bees exist this branch should spawn them and/or make them aggro
-		if not campfire[1] then mcl_util.deal_damage(player, 10, {type = "sting"}) end
-		node.name = original_block
-		mcl_redstone.swap_node(pos, node)
 	end
+	if not smoky then mcl_beehives.disturb(pos, node, player) end
+	mcl_beehives.set_honey_level(pos, node, 0)
 	return mcl_util.return_itemstack_if_alive(player, itemstack)
-	-- returning the old itemstack here would result in it still being in hand *after* death
 end
 
--- Dig Function for Beehives
-local dig_hive = function(pos, node, _, digger)
-	local wield_item = digger:get_wielded_item()
-	local beehive = string.find(node.name, "mcl_beehives:beehive")
-	local beenest = string.find(node.name, "mcl_beehives:bee_nest")
-	local silk_touch = mcl_enchanting.has_enchantment(wield_item, "silk_touch")
-	local is_creative = core.is_creative_enabled(digger:get_player_name())
-	local inv = digger:get_inventory()
-
-	if beehive then
-		if not is_creative then
-			if not silk_touch then
-				mcl_util.deal_damage(digger, 10, {type = "sting"})
-				core.add_item(pos, "mcl_beehives:beehive")
-			else
-
-				core.add_item(pos, node.name)
+local function dig_hive(pos, node, old_meta, digger)
+	local player = digger and digger:is_player() and digger or nil
+	local base = mcl_beehives.base_node(node.name)
+	local fields = old_meta.fields or {}
+	if player then
+		local name = player:get_player_name()
+		if core.is_creative_enabled(name) then
+			local inv = player:get_inventory()
+			if inv:room_for_item("main", base) and not inv:contains_item("main", base) then
+				inv:add_item("main", base)
 			end
-		elseif is_creative and inv:room_for_item("main", "mcl_beehives:beehive") and not inv:contains_item("main", "mcl_beehives:beehive") then
-			inv:add_item("main", "mcl_beehives:beehive")
+			mcl_beehives.disturb(pos, node, nil, fields)
+			return
 		end
-	elseif beenest then
-		if not is_creative then
-			if silk_touch and wield_item:get_name() ~= "mcl_enchanting:book_enchanted" then
-				awards.unlock(digger:get_player_name(), "mcl:total_beelocation")
-				core.add_item(pos, node.name)
-			else
-				mcl_util.deal_damage(digger, 10, {type = "sting"})
-			end
-		elseif is_creative and inv:room_for_item("main", "mcl_beehives:bee_nest") and not inv:contains_item("main", "mcl_beehives:bee_nest") then
-			inv:add_item("main", "mcl_beehives:bee_nest")
+		local tool = player:get_wielded_item()
+		if not mcl_enchanting.is_book(tool:get_name()) and mcl_enchanting.has_enchantment(tool, "silk_touch") then
+			local count = mcl_beehives.silk_drop(pos, node, fields)
+			if count >= 3 then awards.unlock(name, "mcl:total_beelocation") end
+			return
 		end
+	end
+	mcl_beehives.disturb(pos, node, player, fields)
+	if core.get_item_group(node.name, "beehive") > 0 then
+		core.add_item(pos, base)
 	end
 end
 
@@ -108,11 +93,12 @@ core.register_node("mcl_beehives:beehive", {
 	_mcl_burntime = 15,
 	drop = "",
 	after_dig_node = dig_hive,
+	after_place_node = mcl_beehives.after_place,
+	on_timer = mcl_beehives.on_timer,
 })
 
 for l = 1, 4 do
 	local name = "mcl_beehives:beehive_" .. l
-	table.insert(abm_nodes, name)
 	core.register_node(name, {
 		description = S("Beehive"),
 		_doc_items_longdesc = S("Artificial bee nest."),
@@ -128,6 +114,8 @@ for l = 1, 4 do
 		_mcl_baseitem = "mcl_beehives:beehive",
 		drop = "",
 		after_dig_node = dig_hive,
+		after_place_node = mcl_beehives.after_place,
+		on_timer = mcl_beehives.on_timer,
 	})
 end
 
@@ -147,6 +135,8 @@ core.register_node("mcl_beehives:beehive_5", {
 	on_rightclick = honey_harvest,
 	drop = "",
 	after_dig_node = dig_hive,
+	after_place_node = mcl_beehives.after_place,
+	on_timer = mcl_beehives.on_timer,
 })
 
 -- Bee Nest
@@ -165,11 +155,12 @@ core.register_node("mcl_beehives:bee_nest", {
 	_mcl_burntime = 15,
 	drop = "",
 	after_dig_node = dig_hive,
+	after_place_node = mcl_beehives.after_place,
+	on_timer = mcl_beehives.on_timer,
 })
 
 for i = 1, 4 do
 	local name = "mcl_beehives:bee_nest_"..i
-	table.insert(abm_nodes, name)
 	core.register_node(name, {
 		description = S("Bee Nest"),
 		_doc_items_longdesc = S("A naturally generating block that houses bees and a tasty treat...if you can get it."),
@@ -185,6 +176,8 @@ for i = 1, 4 do
 		_mcl_baseitem = "mcl_beehives:bee_nest",
 		drop = "",
 		after_dig_node = dig_hive,
+		after_place_node = mcl_beehives.after_place,
+		on_timer = mcl_beehives.on_timer,
 	})
 end
 
@@ -205,6 +198,8 @@ core.register_node("mcl_beehives:bee_nest_5", {
 	on_rightclick = honey_harvest,
 	drop = "",
 	after_dig_node = dig_hive,
+	after_place_node = mcl_beehives.after_place,
+	on_timer = mcl_beehives.on_timer,
 })
 
 -- Crafting
@@ -215,27 +210,4 @@ core.register_craft({
 		{ "mcl_honey:honeycomb", "mcl_honey:honeycomb", "mcl_honey:honeycomb" },
 		{ "group:wood", "group:wood", "group:wood" },
 	},
-})
-
--- Temporary ABM to update honey levels
-core.register_abm({
-	label = "Update Beehive or Beenest Honey Levels",
-	nodenames = abm_nodes, --Register for all levels but 5 so honeyed hives aren't constantly updating themselves
-	interval = 75, --This is similar to what the situation would be for 2 bees (~5 to reach flower, 20 to harvest pollen, ~5 to return, 120 to process).
-	chance = 1,
-	action = function(pos, node)
-		local flower = core.find_node_near(pos, 5, "group:flower")
-		local tod = core.get_timeofday() * 24000 --Bees need to sleep (note in Minecraft, they don't in the Nether/End, which is ridiculous)
-		if tod > 6000 and tod < 18000 and flower and mcl_weather.get_weather() ~= "rain" then
-			local node_name = node.name
-			local original_block = "mcl_beehives:bee_nest"
-			if core.get_item_group(node_name, "beehive") == 1 then
-				original_block = "mcl_beehives:beehive"
-			end
-			local honey_level = core.get_item_group(node_name, "honey_level")
-			honey_level = math.min(honey_level + (math.random(100) == 100 and 2 or 1), 5)
-			node.name = original_block.."_"..honey_level
-			mcl_redstone.swap_node(pos, node)
-		end
-	end,
 })

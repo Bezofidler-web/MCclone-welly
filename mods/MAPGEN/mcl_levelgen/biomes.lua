@@ -674,7 +674,7 @@ local VARIANT_BIOMES = {
 		"IceSpikes", 0, "SnowyTaiga", 0, 0,
 	},
 	{
-		0, 0, 0, 0, "OldGrowthPineTaiga",
+		0, 0, "DappledForest", "DappledForest", "OldGrowthPineTaiga",
 	},
 	{
 		"SunflowerPlains", 0, 0, "OldGrowthBirchForest", 0,
@@ -3306,6 +3306,18 @@ mcl_levelgen.register_biome ("Forest", {
 	fog_color = "#c0d8ff",
 	sky_color = "#79a6ff",
 })
+
+local dappled_forest = table.copy (registered_biomes.Forest)
+dappled_forest.temperature = 0.6
+dappled_forest.downfall = 0.6
+dappled_forest.features[10] = {
+	"mcl_levelgen:glow_lichen",
+	"mcl_poplar:trees_dappled_forest",
+	"mcl_poplar:patch_red_shrub",
+	"mcl_levelgen:patch_grass_forest",
+	"mcl_mushrooms:brown_mushroom_normal",
+}
+mcl_levelgen.register_biome ("DappledForest", dappled_forest)
 
 mcl_levelgen.register_biome ("FrozenOcean", {
 	carvers = {

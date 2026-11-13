@@ -14,14 +14,22 @@ The following media licenses are used:
 Note: A “`*`” in a file name below is a placeholder which can stand for any text.
 
 ## Models
-All models were done by [22i](https://github.com/22i) and are licensed under GPLv3.
+The models listed below were done by [22i](https://github.com/22i) and are licensed under GPLv3.
 
 Origin of those models:
 
 * [Mod “amc”](https://github.com/22i/amc/)
 * [Repository with Blender source files for models](https://github.com/22i/minecraft-voxel-blender-models)
 
+`mobs_mc_breeze.obj` and `mobs_mc_bogged_mushrooms.obj` are Mineclonia meshes licensed under GPLv3.
+
+`mobs_mc_fox.b3d` and `mobs_mc_fox.png` are the animated fox mesh and its atlas by ElCeejo from [Animalia](https://github.com/ElCeejo/animalia/tree/5895f403fd43a9464e06b3675af3495f50565a3f), distributed under the MIT terms in `LICENSE-animalia.txt`. Mineclonia applies its snowy tint at runtime. `mobs_mc_spawn_icon_fox.png` is original Mineclonia artwork under CC BY-SA 4.0.
+
 ## Textures
+
+* The Breeze and Bogged textures are from [Pixel Perfection Legacy 26.3-97.2](https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2) by NovaWostra and contributors, a continuation of [Pixel Perfection by Hugh “XSSheep” Rutland](https://www.planetminecraft.com/texture-pack/131pixel-perfection/). Mineclonia added two mushroom sprites to the Bogged atlas for the attached head mesh. The [CC BY-SA 4.0 terms](https://creativecommons.org/licenses/by-sa/4.0/) apply to these files.
+    * `mobs_mc_breeze.png`, `mobs_mc_breeze_eyes.png`, `mobs_mc_breeze_wind.png`, `mobs_mc_breeze_spawn_egg.png`
+    * `mobs_mc_bogged.png`, `mobs_mc_bogged_overlay.png`, `mobs_mc_bogged_spawn_egg.png`
 
 * Mob and item textures are heavily based on [Pixel Perfection](https://www.planetminecraft.com/texture_pack/131pixel-perfection/), a texture pack for Minecraft.
     * Original author: [XSSheep](https://www.planetminecraft.com/member/xssheep/)

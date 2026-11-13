@@ -75,6 +75,7 @@ globals = {
 	"mcl_credits",
 	"mcl_crimson",
 	"mcl_criticals",
+	"mcl_cushions",
 	"mcl_damage",
 	"mcl_death_drop",
 	"mcl_death_messages",

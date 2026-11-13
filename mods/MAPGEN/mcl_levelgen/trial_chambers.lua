@@ -384,12 +384,11 @@ mcl_levelgen.register_template_pool ("mcl_levelgen:trial_chambers_decor_pots_2",
 	}
 })
 
--- FIXME: Implement breeze mobs
--- mcl_levelgen.register_template_pool ("mcl_levelgen:trial_chambers_breeze_spawners", {
--- 	elements = {
--- 		L ("trial_chambers_spawner_breeze", 1),
--- 	}
--- })
+mcl_levelgen.register_template_pool ("mcl_levelgen:trial_chambers_breeze_spawners", {
+	elements = {
+		L ("trial_chambers_spawner_breeze", 1),
+	},
+})
 
 mcl_levelgen.register_template_pool ("mcl_levelgen:trial_chambers_melee_spawners", {
 	elements = {
@@ -412,7 +411,7 @@ mcl_levelgen.register_template_pool ("mcl_levelgen:trial_chambers_ranged_spawner
 	elements = {
 		L ("trial_chambers_spawner_stray",    1),
 		L ("trial_chambers_spawner_skeleton", 1),
-		-- FIXME: L ("trial_chambers_spawner_bogged",   1),
+		L ("trial_chambers_spawner_bogged",   1),
 	},
 })
 

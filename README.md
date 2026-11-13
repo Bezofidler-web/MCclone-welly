@@ -13,6 +13,8 @@ performance and features. For information about migrating from VoxeLibre
 
 Version: 0.124.1
 
+[Friends-only server and local Java textures](FRIENDS.md)
+
 ### Differences from VoxeLibre (formerly MineClone2)
 * Overworld depth increased from 64 to 128 nodes
 * Improved nether portals

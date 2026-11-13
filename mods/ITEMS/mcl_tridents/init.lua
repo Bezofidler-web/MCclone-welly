@@ -399,6 +399,13 @@ function trident_entity:on_step (dtime, moveresult)
 			end
 		elseif v2 then
 			table.insert (self._objects_seen, object)
+			local entity = object:get_luaentity ()
+			if not self._riptide_player and entity and entity._mcl_deflect_projectile
+				and entity:_mcl_deflect_projectile (self.object, intersection_point) then
+				self._prev_pos = self.object:get_pos ()
+				self:rotate (self.object:get_velocity ())
+				return
+			end
 			self.object:set_pos (intersection_point)
 			self.object:set_velocity (v2)
 			self:rotate (v2)
@@ -416,7 +423,6 @@ function trident_entity:on_step (dtime, moveresult)
 				damage = damage + impaling * 2.5
 			end
 			local object_pos = mcl_util.get_nodepos (object:get_pos ())
-			local entity = object:get_luaentity ()
 			local object_type = nil
 			if entity then
 				object_type = entity.name

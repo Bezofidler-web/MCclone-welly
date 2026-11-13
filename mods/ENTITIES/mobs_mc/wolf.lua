@@ -991,19 +991,21 @@ mcl_mobs.register_spawner (wolf_spawner_grove)
 
 local dog = table.copy (wolf)
 
-function dog:mob_activate (self_pos)
-	local staticdata = {
+function dog:mob_activate (staticdata, dtime)
+	if not wolf.mob_activate (self, staticdata, dtime) then
+		return false
+	end
+	local replacement = self:replace_with ("mobs_mc:wolf", false, {
 		owner = self.owner,
 		_collar_color = self._collar_color,
 		tamed = true,
 		order = self.order,
-	}
-	local wolf = self:replace_with ("mobs_mc:wolf", false, staticdata)
-	if wolf then
-		local entity = wolf:get_luaentity ()
-		entity:after_tame ()
+	})
+	if replacement then
+		replacement:get_luaentity ():after_tame ()
+		self.object:remove ()
 	end
-	self.object:remove ()
+	return true
 end
 
 mcl_mobs.register_mob ("mobs_mc:dog", dog)

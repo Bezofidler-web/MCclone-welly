@@ -1,0 +1,11 @@
+The Mineclonia bee models and textures (mobs_mc_bee*, mobs_mc_spawn_icon_bee.png)
+are original artwork created for Mineclonia, available under CC BY-SA 4.0:
+https://creativecommons.org/licenses/by-sa/4.0/.
+
+The models use an adult 64 × 64 and a baby 32 × 32 texture atlas. The adult
+stinger uses a separate 16 × 16 atlas. The matching Java texture layouts are
+supported as a local user override. No Java textures are bundled in this mod.
+
+Behaviour references:
+https://www.minecraft.net/en-us/article/bee
+https://feedback.minecraft.net/hc/en-us/articles/360037384972-Minecraft-Java-Edition-Buzzy-Bees

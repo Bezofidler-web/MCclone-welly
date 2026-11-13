@@ -1,8 +1,39 @@
 local S = core.get_translator(core.get_current_modname())
 
-core.register_node("mcl_poplar:red_shrub", {
-	description = S("Red Bush"),
-	drop = "mcl_flowers:firefly_bush",
+local red_shrub = "mcl_poplar:red_shrub"
+local allowed_soils = {
+	"mcl_core:dirt_with_grass", "mcl_core:mycelium", "mcl_core:podzol", "mcl_core:dirt",
+	"mcl_core:coarse_dirt", "mcl_lush_caves:rooted_dirt", "mcl_farming:soil", "mcl_farming:soil_wet",
+	"mcl_mud:mud", "mcl_mangrove:mangrove_mud_roots", "mcl_lush_caves:moss", "mcl_pale_oak:pale_moss"
+}
+
+local function can_grow_at(pos)
+	local soil = core.get_node_or_nil(vector.offset(pos, 0, -1, 0))
+	return soil ~= nil and table.indexof(allowed_soils, soil.name) ~= -1, 0
+end
+
+local function spread_red_shrub(_, user, _, pos)
+	local player_name = user and user:get_player_name() or ""
+	local neighbours = {
+		vector.offset(pos, -1, 0, 0),
+		vector.offset(pos, 1, 0, 0),
+		vector.offset(pos, 0, 0, -1),
+		vector.offset(pos, 0, 0, 1)
+	}
+	table.shuffle(neighbours)
+	for _, target in ipairs(neighbours) do
+		if core.get_node(target).name == "air" and can_grow_at(target)
+				and not core.is_protected(target, player_name) then
+			core.set_node(target, {name = red_shrub})
+			return true
+		end
+	end
+	return false
+end
+
+core.register_node(red_shrub, {
+	description = S("Red Shrub"),
+	drop = red_shrub,
 	drawtype = "plantlike",
 	waving = 1,
 	paramtype = "light",
@@ -24,20 +55,7 @@ core.register_node("mcl_poplar:red_shrub", {
 		fixed = {-0.3, -0.5, -0.3, 0.3, 0.4, 0.3}
 	},
 	node_placement_prediction = "",
-	on_place = mcl_util.generate_on_place_plant_function(function(pos)
-		local below = vector.offset(pos, 0, -1, 0)
-		local soil = core.get_node_or_nil(below)
-		if not soil then return end
-		local allowed_nodes = {
-			"mcl_core:dirt_with_grass", "mcl_core:mycelium", "mcl_core:podzol", "mcl_core:dirt",
-			"mcl_core:coarse_dirt", "mcl_lush_caves:rooted_dirt", "mcl_farming:soil", "mcl_farming:soil_wet",
-			"mcl_mud:mud", "mcl_mangrove:mangrove_mud_roots", "mcl_lush_caves:moss", "mcl_pale_oak:pale_moss"
-		}
-
-		if table.indexof(allowed_nodes, soil.name) ~= -1 then
-			return true, 0
-		end
-	end),
-	_on_bone_meal = mcl_flowers.on_bone_meal,
+	on_place = mcl_util.generate_on_place_plant_function(can_grow_at),
+	_on_bone_meal = spread_red_shrub,
 	_mcl_hardness = 0,
 })

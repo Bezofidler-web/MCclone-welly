@@ -396,11 +396,137 @@ end
 mcl_mobs.register_mob ("mobs_mc:stray", stray)
 
 ------------------------------------------------------------------------
--- Skeleton & Stray spawning.
+-- Bogged.
+------------------------------------------------------------------------
+
+local bogged = table.merge (skeleton, {
+	description = S ("Bogged"),
+	hp_min = 16,
+	hp_max = 16,
+	shoot_interval = 2.5, -- The bow draw adds one second.
+	conversion_step = false,
+	textures = {
+		"mobs_mc_empty.png", -- armor
+		"mobs_mc_bogged_overlay.png",
+		"mobs_mc_bogged.png",
+	},
+	drops = {skeleton.drops[1], skeleton.drops[2]},
+	on_die = false,
+})
+
+local crown_name = "mobs_mc:bogged_mushrooms"
+core.register_entity (crown_name, {
+	initial_properties = {
+		visual = "mesh",
+		mesh = "mobs_mc_bogged_mushrooms.obj",
+		textures = {"mobs_mc_bogged.png"},
+		pointable = false,
+		physical = false,
+		static_save = false,
+		use_texture_alpha = true,
+		backface_culling = false,
+	},
+	on_step = function (self)
+		if not self.object:get_attach () then
+			self.object:remove ()
+		end
+	end,
+})
+
+function bogged:mob_activate (staticdata, dtime)
+	if not skeleton.mob_activate (self, staticdata, dtime) then
+		return false
+	end
+	if not self._sheared then
+		local crown = core.add_entity (self.object:get_pos (), crown_name)
+		if crown then
+			crown:set_attach (self.object, self._head_armor_bone,
+					  vector.new (0, 4.5, 0), vector.zero ())
+			self._mushroom_crown = crown
+		end
+	end
+	return true
+end
+
+function bogged:on_deactivate (removal)
+	if self._mushroom_crown and self._mushroom_crown:is_valid () then
+		self._mushroom_crown:remove ()
+	end
+	mob_class.on_deactivate (self, removal)
+end
+
+function bogged:ai_step (dtime)
+	mob_class.ai_step (self, dtime)
+end
+
+function bogged:shoot_arrow (pos, dir)
+	mcl_bows.shoot_arrow ("mcl_potions:poison_arrow", pos, dir,
+			     self:get_yaw (), self.object, 0.5333333, nil,
+			     false, self:get_wielditem ())
+end
+
+function bogged:item_drop (cooked, looting, reason)
+	if self.last_player_hit_time and core.get_gametime () - self.last_player_hit_time <= 5 then
+		self.drops = table.copy (self.drops)
+		table.insert (self.drops, {
+			name = "mcl_potions:poison_arrow",
+			chance = 2,
+			min = 1,
+			max = 1,
+			looting_chance_function = function (level)
+				return 1 - 0.25 / level
+			end,
+		})
+	end
+	mob_class.item_drop (self, cooked, looting, reason)
+end
+
+local mushrooms = {"mcl_mushrooms:mushroom_brown", "mcl_mushrooms:mushroom_red"}
+
+function bogged:shear (stack, creative)
+	if self.dead or self._sheared or core.get_item_group (stack:get_name (), "shears") == 0 then
+		return false
+	end
+	self._sheared = true
+	if self._mushroom_crown and self._mushroom_crown:is_valid () then
+		self._mushroom_crown:remove ()
+	end
+	self._mushroom_crown = nil
+	local pos = self.object:get_pos ()
+	core.sound_play ("mcl_tools_shears_cut", {pos = pos}, true)
+	for _ = 1, 2 do
+		core.add_item (vector.offset (pos, 0, 1.4, 0), mushrooms[math.random (#mushrooms)])
+	end
+	if not creative then
+		stack:add_wear (mcl_autogroup.get_wear (stack:get_name (), "shearsy"))
+	end
+	return true
+end
+
+function bogged:on_rightclick (clicker)
+	local stack = clicker:get_wielded_item ()
+	if self:shear (stack, core.is_creative_enabled (clicker:get_player_name ())) then
+		clicker:set_wielded_item (stack)
+	end
+end
+
+function bogged:_on_dispense (stack, pos, droppos, dropnode, dropdir)
+	if self:shear (stack, false) then
+		return stack
+	end
+	return mob_class._on_dispense (self, stack, pos, droppos, dropnode, dropdir)
+end
+
+mcl_mobs.register_mob ("mobs_mc:bogged", bogged)
+
+------------------------------------------------------------------------
+-- Skeleton, Stray and Bogged spawning.
 ------------------------------------------------------------------------
 
 mcl_mobs.register_egg ("mobs_mc:skeleton", S("Skeleton"), "#c1c1c1", "#494949", 0)
 mcl_mobs.register_egg ("mobs_mc:stray", S("Stray"), "#5f7476", "#dae8e7", 0)
+mcl_mobs.register_egg ("mobs_mc:bogged", S ("Bogged"), "#788348", "#3a4723", 0)
+core.override_item ("mobs_mc:bogged", {inventory_image = "mobs_mc_bogged_spawn_egg.png"})
 
 ------------------------------------------------------------------------
 -- Modern Skeleton + Stray spawning.
@@ -417,9 +543,10 @@ local cold_biomes = {
 	"SnowyPlains",
 	"SnowySlopes",
 }
+local swamp_biomes = {"Swamp", "MangroveSwamp"}
 
 for _, biome in pairs (mobs_mc.monster_biomes) do
-	if table.indexof (cold_biomes, biome) == -1 then
+	if table.indexof (cold_biomes, biome) == -1 and table.indexof (swamp_biomes, biome) == -1 then
 		table.insert (skeleton_biomes, biome)
 	end
 end
@@ -473,6 +600,17 @@ local stray_spawner = table.merge (mobs_mc.monster_spawner, {
 	biomes = cold_biomes,
 })
 
+local skeleton_spawner_swamp = table.merge (skeleton_spawner, {
+	weight = 70,
+	biomes = swamp_biomes,
+})
+
+local bogged_spawner = table.merge (mobs_mc.monster_spawner, {
+	name = "mobs_mc:bogged",
+	weight = 30,
+	biomes = swamp_biomes,
+})
+
 local monster_spawner = mobs_mc.monster_spawner
 
 function stray_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_cache,
@@ -492,5 +630,7 @@ end
 mcl_mobs.register_spawner (skeleton_spawner)
 mcl_mobs.register_spawner (skeleton_spawner_soul_sand_valley)
 mcl_mobs.register_spawner (skeleton_spawner_cold)
+mcl_mobs.register_spawner (skeleton_spawner_swamp)
 mcl_mobs.register_spawner (skeleton_spawner_nether_fortress)
 mcl_mobs.register_spawner (stray_spawner)
+mcl_mobs.register_spawner (bogged_spawner)
