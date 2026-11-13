@@ -14,7 +14,8 @@ mcl_armor.use_durability = use_durability
 mcl_damage.register_modifier(function(obj, damage, reason)
 	local flags = reason.flags
 
-	if flags.bypasses_armor and flags.bypasses_magic then
+	local bypasses_enchantments = flags.bypasses_magic or flags.bypasses_armor_enchantments
+	if flags.bypasses_armor and bypasses_enchantments then
 		return damage
 	end
 
@@ -67,7 +68,7 @@ mcl_damage.register_modifier(function(obj, damage, reason)
 					end
 				end
 
-				if not flags.bypasses_magic then
+				if not bypasses_enchantments then
 					local function add_enchantments(tbl)
 						if tbl then
 							for _, enchantment in pairs(tbl) do

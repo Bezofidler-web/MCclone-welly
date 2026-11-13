@@ -1,0 +1,8 @@
+The Allay skin and spawn egg come from Pixel Perfection Legacy 26.3-97.2 by
+NovaWostra and contributors, continuing Hugh “XSSheep” Rutland's Pixel
+Perfection. The PNGs are distributed under CC BY-SA 4.0.
+
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The original Mineclonia mesh uses Java-compatible atlas coordinates.

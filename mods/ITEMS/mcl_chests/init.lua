@@ -253,6 +253,9 @@ end
 -- To be called if a player opened a chest
 local function player_chest_open(player, pos, node_name, textures, param2, double, sound, mesh, shulker)
 	local name = player:get_player_name()
+	if mcl_sculk then
+		mcl_sculk.emit_vibration (pos, "container_open", player)
+	end
 	open_chests[name] = {
 		pos = pos,
 		node_name = node_name,
@@ -325,6 +328,9 @@ local function player_chest_close(player)
 	local open_chest = open_chests[name]
 	if open_chest == nil then
 		return
+	end
+	if mcl_sculk then
+		mcl_sculk.emit_vibration (open_chest.pos, "container_close", player)
 	end
 	if animate_chests then
 		find_or_create_entity(open_chest.pos, open_chest.node_name, open_chest.textures, open_chest.param2, open_chest.double, open_chest.sound, open_chest.mesh, open_chest.shulker and "shulker" or "chest"):close(name)

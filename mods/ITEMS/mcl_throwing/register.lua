@@ -100,6 +100,16 @@ local function snowball_particles(pos, vel)
 	})
 end
 
+local function snowball_vibration(self, pos, node)
+	if mcl_sculk then
+		local thrower = self._thrower
+		if type(thrower) == "string" then
+			thrower = core.get_player_by_name(thrower)
+		end
+		mcl_sculk.emit_vibration(pos, "projectile_land", thrower, node)
+	end
+end
+
 -- Snowball on_step()--> called when snowball is moving.
 local function snowball_on_step(self, dtime)
 	self.timer = self.timer + dtime
@@ -111,6 +121,9 @@ local function snowball_on_step(self, dtime)
 	-- Destroy when hitting a solid node
 	if self._lastpos.x~=nil then
 		if (def and def.walkable) or not def then
+			if def and node.name ~= "ignore" then
+				snowball_vibration(self, vector.round(pos), node.name)
+			end
 			core.sound_play("mcl_throwing_snowball_impact_hard", { pos = pos, max_hear_distance=16, gain=0.7 }, true)
 			snowball_particles(self._lastpos, vel)
 			self.object:remove()
@@ -121,6 +134,7 @@ local function snowball_on_step(self, dtime)
 		end
 	end
 	if check_object_hit(self, pos, {snowball_vulnerable = 3}) then
+		snowball_vibration(self, pos)
 		core.sound_play("mcl_throwing_snowball_impact_soft", { pos = pos, max_hear_distance=16, gain=0.7 }, true)
 		snowball_particles(pos, vel)
 		self.object:remove()

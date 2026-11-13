@@ -677,7 +677,7 @@ local VARIANT_BIOMES = {
 		0, 0, "DappledForest", "DappledForest", "OldGrowthPineTaiga",
 	},
 	{
-		"SunflowerPlains", 0, 0, "OldGrowthBirchForest", 0,
+		"SunflowerPlains", 0, 0, "OldGrowthBirchForest", "PaleGarden",
 	},
 	{
 		0, 0, "Plains", "SparseJungle", "BambooJungle",
@@ -2372,6 +2372,18 @@ mcl_levelgen.register_biome ("DarkForest", {
 	fog_color = "#c0d8ff",
 	sky_color = "#79a6ff",
 })
+
+local pale_garden = table.copy (registered_biomes.DarkForest)
+pale_garden.grass_palette_index = 31
+pale_garden.leaves_palette_index = 31
+pale_garden.fog_color = "#817770"
+pale_garden.sky_color = "#b9b9b9"
+pale_garden.features[10] = {
+	"mcl_levelgen:glow_lichen",
+	"mcl_pale_oak:pale_garden_vegetation",
+	"mcl_levelgen:patch_grass_forest",
+}
+mcl_levelgen.register_biome ("PaleGarden", pale_garden)
 
 mcl_levelgen.register_biome ("DeepColdOcean", {
 	carvers = {

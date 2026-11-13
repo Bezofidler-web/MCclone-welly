@@ -128,15 +128,21 @@ local function reset_upgraded_item(pos)
 	inv:set_stack("upgraded_item", 1, upgraded_item)
 end
 
+local function is_upgrade_input(stack)
+	local name = stack:get_name()
+	if mcl_armor.trims.blacklisted[name] then return false end
+	return core.get_item_group(name, "armor") > 0
+		or core.get_item_group(name, "tool") > 0
+		or core.get_item_group(name, "sword") > 0
+		or (core.get_item_group(name, "nautilus_armor") > 0 and stack:get_definition()._mcl_upgradable)
+end
+
 local function sort_stack(stack, _)
 	if core.get_item_group(stack:get_name(), "smithing_template") > 0 or core.get_item_group(stack:get_name(), "upgrade_template") > 0 then
 		return "template"
 	elseif mcl_smithing_table.is_smithing_mineral(stack) then
 		return "mineral"
-	elseif (core.get_item_group(stack:get_name(),"armor") > 0
-			or core.get_item_group(stack:get_name(),"tool") > 0
-			or core.get_item_group(stack:get_name(),"sword") > 0)
-			and not mcl_armor.trims.blacklisted[stack:get_name()] then
+	elseif is_upgrade_input(stack) then
 		return "upgrade_item"
 	end
 end
@@ -183,10 +189,7 @@ core.register_node("mcl_smithing_table:table", {
 		end
 		local r = 0
 		if listname == "upgrade_item" then
-			if (core.get_item_group(stack:get_name(),"armor") > 0
-			or core.get_item_group(stack:get_name(),"tool") > 0
-			or core.get_item_group(stack:get_name(),"sword") > 0)
-			and not mcl_armor.trims.blacklisted[stack:get_name()] then
+			if is_upgrade_input(stack) then
 				r = stack:get_count()
 			end
 		elseif listname == "mineral" then

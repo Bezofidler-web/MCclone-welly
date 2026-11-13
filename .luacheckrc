@@ -141,6 +141,7 @@ globals = {
 	"mcl_moon",
 	"mcl_mud",
 	"mcl_mushrooms",
+	"mcl_nautilus",
 	"mcl_nether",
 	"mcl_nether_fortresses",
 	"mcl_observers",

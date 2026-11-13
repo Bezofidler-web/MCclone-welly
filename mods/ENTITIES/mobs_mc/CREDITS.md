@@ -40,6 +40,7 @@
 * Shulker: maikerumine Mesh and animation by toby109tt  / https://github.com/22i
 * Silverfish: maikerumine Mesh and animation by toby109tt  / https://github.com/22i
 * Skeleton and Stray Mesh by Morn76 Animation by Pavel_S
+* Parched reuses the Skeleton mesh. Its skin and spawn egg come from [Pixel Perfection Legacy 26.3-97.2](https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2) by NovaWostra and contributors, continuing Hugh “XSSheep” Rutland's Pixel Perfection, under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 * Wither Skeleton: Mesh by Morn76 Animation by Pavel_S
 * Zombie Mesh by Morn76 Animation by Pavel_S
 * Zombiepig: Mesh by Morn76 Animation by Pavel_S

@@ -552,6 +552,11 @@ local default_processors = {
 	wall_processor,
 }
 
+local gaol_allay_sites = {
+	["mcl_levelgen:woodland_mansion_large_gaol"] = {{2, 2, 7}, {7, 2, 7}},
+	["mcl_levelgen:woodland_mansion_redstone_gaol"] = {{3, 2, 12}},
+}
+
 local function chest_loot_processor (x, y, z, rng, cid_existing,
 				     param2_existing, cid, param2)
 	if is_cid_chest_or_wire[cid] or cid == cid_hanging_banner then
@@ -1971,6 +1976,25 @@ local function place_module (self, x, y, z, mod, gx, gz, rng)
 	end
 
 	local sx, sy, sz = get_schematic_size (schematic, rotation)
+	local cells = gaol_allay_sites[schematic]
+	if cells then
+		for _, cell in ipairs (cells) do
+			-- The MTS loader reads unrotated rows in reverse Z order.
+			local dx, dz = cell[1], cell[3]
+			if rotation == "90" then
+				dx, dz = dz, dx
+			elseif rotation == "180" then
+				dx = sx - 1 - dx
+			elseif rotation == "270" then
+				dx, dz = sx - 1 - dz, sz - 1 - dx
+			else
+				dz = sz - 1 - dz
+			end
+			local ax, ay, az = x + dx, y + cell[2], z + dz
+			notify_generated ("mcl_levelgen:mansion_spawn_mob", ax, ay, az,
+				{ax, ay, az, "mobs_mc:allay"})
+		end
+	end
 	-- Fill any areas left unaltered by the schematic with air.
 	if y + sy <= y1 then
 		fill_area (x, y + sy, z, x + sx - 1, y1, z + sz - 1,

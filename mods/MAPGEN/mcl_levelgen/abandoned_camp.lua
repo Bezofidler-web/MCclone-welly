@@ -106,6 +106,7 @@ mcl_levelgen.register_loot_table (stash_id, {
 		stacks_min = 1,
 		stacks_max = 1,
 		items = {
+			{ itemstring = "mcl_maps:ancient_city_map" },
 			{ itemstring = "mcl_maps:jungle_explorer_map" },
 			{ itemstring = "mcl_maps:trial_explorer_map" },
 			{ itemstring = "mcl_maps:woodland_explorer_map" },
@@ -113,21 +114,27 @@ mcl_levelgen.register_loot_table (stash_id, {
 	},
 })
 
-local woods = {
-	Forest = "oak",
-	FlowerForest = "oak",
-	BirchForest = "birch",
-	OldGrowthBirchForest = "birch",
-	WindsweptForest = "spruce",
+-- Use Mineclonia's wood names and the Java camp biome palette as a reference.
+local palettes = {
+	BambooJungle = {"bamboo", "yellow"},
+	BirchForest = {"birch", "yellow"},
+	CherryGrove = {"cherry_blossom", "pink"},
+	DappledForest = {"poplar", "orange"},
+	FlowerForest = {"oak", "pink"},
+	Forest = {"oak", "white"},
+	Meadow = {"oak", "light_blue"},
+	OldGrowthBirchForest = {"birch", "green"},
+	OldGrowthPineTaiga = {"spruce", "brown"},
+	OldGrowthSpruceTaiga = {"spruce", "grey"},
+	PaleGarden = {"pale_oak", "silver"},
+	Savannah = {"acacia", "yellow"},
+	SnowyTaiga = {"spruce", "light_blue"},
+	SparseJungle = {"jungle", "lime"},
+	Swamp = {"oak", "green"},
+	Taiga = {"spruce", "green"},
+	WindsweptForest = {"spruce", "grey"},
+	WoodedMesa = {"oak", "red"},
 }
-local accent_color = {
-	FlowerForest = "pink",
-	WindsweptForest = "grey",
-}
-if mcl_levelgen.registered_biomes.DappledForest then
-	woods.DappledForest = "poplar"
-	accent_color.DappledForest = "orange"
-end
 
 local biomes = {}
 local timber = {}
@@ -136,8 +143,9 @@ local function getcid (name)
 		return core.get_content_id (name)
 	end
 end
-for biome, wood in pairs (woods) do
+for biome, palette in pairs (palettes) do
 	biomes[#biomes + 1] = biome
+	local wood = palette[1]
 	if not timber[wood] then
 		timber[wood] = {
 			fence = getcid ("mcl_fences:" .. wood .. "_fence"),
@@ -164,8 +172,8 @@ local cid_barrel = getcid ("mcl_barrels:barrel_closed")
 local cid_lantern = getcid ("mcl_lanterns:lantern_floor")
 local cid_mossy_cobble = getcid ("mcl_core:mossycobble")
 local canvas_trim = {}
-for biome, color in pairs (accent_color) do
-	canvas_trim[biome] = getcid ("mcl_wool:" .. color)
+for biome, palette in pairs (palettes) do
+	canvas_trim[biome] = getcid ("mcl_wool:" .. palette[2])
 end
 
 local set_block = mcl_levelgen.set_block
@@ -283,8 +291,8 @@ local function create_camp_start (self, level, terrain, rng, cx, cz)
 	local sea = level.preset.sea_level
 	if y <= sea + 1 then return nil end
 	local biome = level.preset:index_biomes_block (x, y - 1, z)
-	local wood = woods[biome]
-	if not wood then return nil end
+	local palette = palettes[biome]
+	if not palette then return nil end
 
 	local half_radius = CAMP_RADIUS / 2
 	for dx = -CAMP_RADIUS, CAMP_RADIUS, half_radius do
@@ -307,7 +315,7 @@ local function create_camp_start (self, level, terrain, rng, cx, cz)
 			place = place_camp,
 			rotation = mcl_levelgen.random_schematic_rotation (rng),
 			biome = biome,
-			wood = wood,
+			wood = palette[1],
 			stash = rng:next_within (3) == 0,
 			x = x,
 			y = y,

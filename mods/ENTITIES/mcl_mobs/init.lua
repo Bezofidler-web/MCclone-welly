@@ -671,7 +671,7 @@ function mcl_mobs.register_egg(mob, desc, background_color, overlay_color, addeg
 	end
 
 	-- register old stackable mob egg
-	core.register_craftitem(mob, {
+	core.register_craftitem(":" .. mob, {
 
 		description = desc,
 		inventory_image = invimg,
@@ -698,10 +698,11 @@ function mcl_mobs.register_egg(mob, desc, background_color, overlay_color, addeg
 
 				pos.y = pos.y - 0.5
 
-				local mob = core.add_entity(pos, mob, core.serialize({ persist_in_peaceful = true }))
+				local object = core.add_entity(pos, mob, core.serialize({ persist_in_peaceful = true }))
+				local ent = object and object:get_luaentity()
+				if not ent then return itemstack end
 				local entityname = itemstack:get_name()
 				core.log("action", "Player " ..name.." spawned "..entityname.." at "..core.pos_to_string(pos))
-				local ent = mob:get_luaentity()
 
 				-- set nametag
 				ent:set_nametag(itemstack:get_meta():get_string("name"))

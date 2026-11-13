@@ -520,6 +520,36 @@ mcl_enchanting.register_enchantment("soul_speed", {
 	anvil_book_factor = 4,
 })
 
+mcl_enchanting.register_enchantment("swift_sneak", {
+	name = S("Swift Sneak"),
+	max_level = 3,
+	secondary = {armor_legs = true},
+	disallow = {non_combat_armor = true},
+	weight = 1,
+	description = S("Increases movement speed while sneaking."),
+	treasure = true,
+	tradable = false,
+	power_range_table = {{25, 75}, {50, 100}, {75, 125}},
+	inv_combat_tab = true,
+	anvil_item_factor = 8,
+	anvil_book_factor = 4,
+})
+
+local swift_sneak_factor = "mcl_enchanting:swift_sneak"
+mcl_player.register_globalstep_slow(function(player)
+	local leggings = player:get_inventory():get_stack("armor", 4)
+	local level = mcl_enchanting.get_enchantment(leggings, "swift_sneak")
+	-- Mineclonia starts crouching at 30% of walk speed. Java adds 15
+	-- percentage points per level, equivalent to 0.5 of that base.
+	local speed = 1 + math.min(level, 3) * 0.5
+	local factor = playerphysics.get_physics_factor(player, "speed_crouch", swift_sneak_factor)
+	if speed > 1 and speed ~= factor then
+		playerphysics.add_physics_factor(player, "speed_crouch", swift_sneak_factor, speed)
+	elseif speed == 1 and factor then
+		playerphysics.remove_physics_factor(player, "speed_crouch", swift_sneak_factor)
+	end
+end)
+
 -- requires missing Mineclonia feature
 --[[mcl_enchanting.enchantments.sweeping_edge = {
 	name = S("Sweeping Edge"),

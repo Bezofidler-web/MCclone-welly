@@ -284,3 +284,7 @@ mcl_mobs.suppress_spawning_in_structure ("mcl_levelgen:trial_chambers", "monster
 mcl_mobs.suppress_spawning_in_structure ("mcl_levelgen:trial_chambers", "underground_water_creature")
 mcl_mobs.suppress_spawning_in_structure ("mcl_levelgen:trial_chambers", "water_ambient")
 mcl_mobs.suppress_spawning_in_structure ("mcl_levelgen:trial_chambers", "water_creature")
+
+for category in pairs (mcl_mobs.spawn_categories) do
+	mcl_mobs.suppress_spawning_in_structure ("mcl_levelgen:ancient_city", category)
+end

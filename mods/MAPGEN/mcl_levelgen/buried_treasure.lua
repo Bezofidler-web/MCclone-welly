@@ -46,6 +46,17 @@ mcl_levelgen.register_loot_table ("mcl_levelgen:buried_treasure", {
 			{ itemstring = "mcl_tools:sword_iron", weight = 1, amount_min = 1, amount_max = 1 },
 		}
 	},
+	{
+		stacks_min = 1,
+		stacks_max = 1,
+		items = {
+			{nothing = true, weight = 148},
+			{itemstring = "mcl_nautilus:copper_nautilus_armor", weight = 20},
+			{itemstring = "mcl_nautilus:iron_nautilus_armor", weight = 10},
+			{itemstring = "mcl_nautilus:golden_nautilus_armor", weight = 5},
+			{itemstring = "mcl_nautilus:diamond_nautilus_armor", weight = 2},
+		},
+	},
 })
 
 

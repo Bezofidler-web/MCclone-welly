@@ -928,6 +928,7 @@ end
 
 local current_structure_start
 local current_structure_piece
+local current_chunk_structure_starts
 
 local level_chunksize
 local level_y_chunksize
@@ -983,6 +984,7 @@ local function place_structures_in_chunk (level, terrain, starts, i,
 	local x2, z2 = x1 + 15, z1 + 15
 	local rng = structure_rng
 	local pop = set_population_seed (rng, level.level_seed, x1, z1)
+	current_chunk_structure_starts = starts
 
 	current_generation_step = i
 	prepare_structure_placement1 (level, terrain, x1, z1)
@@ -998,6 +1000,7 @@ local function place_structures_in_chunk (level, terrain, starts, i,
 			end
 		end
 	end
+	current_chunk_structure_starts = nil
 end
 
 -- local function count_entries (link)
@@ -1762,6 +1765,10 @@ end
 
 function mcl_levelgen.current_structure_piece ()
 	return current_structure_piece
+end
+
+function mcl_levelgen.current_chunk_structure_starts ()
+	return current_chunk_structure_starts
 end
 
 function mcl_levelgen.lowest_corner_from_point (terrain, x1, z1, dx, dz)

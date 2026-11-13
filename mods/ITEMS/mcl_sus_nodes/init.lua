@@ -218,7 +218,7 @@ local sus_node_loot = {
 			{ itemstring = "mcl_core:gold_nugget", weight = 2 },
 			{ itemstring = "mcl_pottery_sherds:angler", weight = 1, },
 			{ itemstring = "mcl_pottery_sherds:shelter", weight = 1, },
-			--FIXME: add sniffer egg { itemstring = "mobs_mc:SNIFFER", weight = 1, },
+			{ itemstring = "mcl_sniffers:sniffer_egg", weight = 1 },
 			{ itemstring = "mcl_pottery_sherds:snort", weight = 1, },
 			{ itemstring = "mcl_tools:axe_iron", weight = 1 },
 		},
@@ -235,6 +235,11 @@ local function get_random_item(pos)
 	else
 		local str = meta:get_string ("mcl_sus_nodes:loot_seed")
 		local kind = meta:get_string ("mcl_sus_nodes:loot_type")
+		-- Older generators assigned the warm pool to cold suspicious gravel.
+		local node = core.get_node (pos).name
+		if kind == "ocean_ruins_warm" and node:find ("mcl_sus_nodes:gravel", 1, true) == 1 then
+			kind = "ocean_ruins_cold"
+		end
 
 		if sus_node_loot[kind] then
 			local seed = tonumber (str) or 0
@@ -258,7 +263,12 @@ local function get_random_item(pos)
 end
 
 local function brush_node(itemstack, user, pointed_thing)
-	if pointed_thing and pointed_thing.type == "node" then
+	if pointed_thing and pointed_thing.type == "object" then
+		local target = pointed_thing.ref:get_luaentity()
+		if user and user:is_player() and target and target._on_brush then
+			return target:_on_brush(itemstack, user)
+		end
+	elseif pointed_thing and pointed_thing.type == "node" then
 		local pos = core.get_pointed_thing_position(pointed_thing)
 		local node = core.get_node(pos)
 		if core.get_item_group(node.name,"brushable") == 0 then return end

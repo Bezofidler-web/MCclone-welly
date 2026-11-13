@@ -2,6 +2,18 @@ local R = mcl_levelgen.build_random_spread_placement
 
 local floor = math.floor
 
+local nautilus_armor = {
+	stacks_min = 1,
+	stacks_max = 1,
+	items = {
+		{nothing = true, weight = 148},
+		{itemstring = "mcl_nautilus:copper_nautilus_armor", weight = 20},
+		{itemstring = "mcl_nautilus:iron_nautilus_armor", weight = 10},
+		{itemstring = "mcl_nautilus:golden_nautilus_armor", weight = 5},
+		{itemstring = "mcl_nautilus:diamond_nautilus_armor", weight = 2},
+	},
+}
+
 ------------------------------------------------------------------------
 -- Shipwreck.
 ------------------------------------------------------------------------
@@ -53,6 +65,7 @@ mcl_levelgen.register_loot_table ("mcl_levelgen:shipwreck_treasure", {
 			{ itemstring = "mcl_armor:coast", weight = 1, amount_min = 2, amount_max = 2},
 		},
 	},
+	nautilus_armor,
 	{
 		stacks_min = 1,
 		stacks_max = 1,
@@ -98,6 +111,7 @@ mcl_levelgen.register_loot_table ("mcl_levelgen:shipwreck_supply", {
 			{ itemstring = "mcl_tnt:tnt", weight = 1, amount_min = 1, amount_max = 2 },
 		},
 	},
+	nautilus_armor,
 	{
 		stacks_min = 1,
 		stacks_max = 1,
@@ -146,6 +160,7 @@ local random_schematic_rotation = mcl_levelgen.random_schematic_rotation
 local structure_biome_test = mcl_levelgen.structure_biome_test
 local is_not_air = mcl_levelgen.is_not_air
 local make_template_piece_with_pivot = mcl_levelgen.make_template_piece_with_pivot
+local enable_ersatz = mcl_levelgen.enable_ersatz
 
 local function get_offset_beached (y, template, rng)
 	return y - floor (template.height / 4) - rng:next_within (3)
@@ -158,10 +173,25 @@ local lowest_corner_from_point
 local PIVOT_X = 0
 local PIVOT_Z = 5
 
+local function is_ersatz_shore (terrain, x, y, z)
+	local sea = terrain.preset.sea_level
+	if y <= sea + 1 or y > sea + 6 then
+		return false
+	end
+	-- Native mapgens have no Java beach biome. Check for low land beside water.
+	return terrain:get_one_height (x + 10, z) < sea
+		or terrain:get_one_height (x - 10, z) < sea
+		or terrain:get_one_height (x, z + 10) < sea
+		or terrain:get_one_height (x, z - 10) < sea
+end
+
 local function shipwreck_create_start (self, level, terrain, rng, cx, cz)
 	local x, z = cx * 16 + 8, cz * 16 + 8
 	local is_beached = self.is_beached
 	local y = terrain:get_one_height (x, z, is_beached and is_not_air or nil)
+	if is_beached and enable_ersatz and not is_ersatz_shore (terrain, x, y, z) then
+		return nil
+	end
 	if structure_biome_test (level, self, x, y, z) then
 		local rotation = random_schematic_rotation (rng)
 		local idx = rng:next_within (#shipwreck_templates)
@@ -195,9 +225,7 @@ end
 -- Shipwreck registration.
 ------------------------------------------------------------------------
 
-local shipwreck_beached_biomes = {
-	"#is_beach",
-}
+local shipwreck_beached_biomes = enable_ersatz and {"#is_overworld"} or {"#is_beach"}
 
 local shipwreck_biomes = {
 	"#is_ocean",

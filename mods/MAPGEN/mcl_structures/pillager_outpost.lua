@@ -60,14 +60,24 @@ mcl_structures.register_structure("pillager_outpost",{
 			stacks_max = 1,
 			items = {
 				{ itemstring = "mcl_bows:crossbow" },
-			}
+			},
+		},
+		{
+			stacks_min = 0,
+			stacks_max = 1,
+			items = {
+				{ itemstring = "mcl_goats:goat_horn_ponder" },
+				{ itemstring = "mcl_goats:goat_horn_sing" },
+				{ itemstring = "mcl_goats:goat_horn_seek" },
+				{ itemstring = "mcl_goats:goat_horn_feel" },
+			},
 		}}
 	},
 	after_place = function(p, _, pr)
 		local p1 = vector.offset(p,-9,0,-9)
 		local p2 = vector.offset(p,9,32,9)
 		mcl_structures.spawn_mobs("mobs_mc:pillager",spawnon,p1,p2,pr,5)
-		mcl_structures.spawn_mobs("mobs_mc:parrot",{"mcl_pressureplates:pressure_plate_stone_off"},p1,p2,pr,3)
+		mcl_structures.spawn_mobs("mobs_mc:allay",{"mcl_pressureplates:pressure_plate_stone_off"},p1,p2,pr,3)
 		mcl_structures.spawn_mobs("mobs_mc:iron_golem",{"mcl_buttons:button_stone_off"},p1,p2,pr,1)
 		for _,n in pairs(core.find_nodes_in_area(p1,p2,{"group:wall"})) do
 			mcl_walls.update_wall(n)

@@ -80,6 +80,18 @@ local ocean_biomes = {
 	"JungleM_ocean"
 }
 
+local nautilus_armor = {
+	stacks_min = 1,
+	stacks_max = 1,
+	items = {
+		{nothing = true, weight = 148},
+		{itemstring = "mcl_nautilus:copper_nautilus_armor", weight = 20},
+		{itemstring = "mcl_nautilus:iron_nautilus_armor", weight = 10},
+		{itemstring = "mcl_nautilus:golden_nautilus_armor", weight = 5},
+		{itemstring = "mcl_nautilus:diamond_nautilus_armor", weight = 2},
+	},
+}
+
 local buried_treasure = {
 	{
 		stacks_min = 1,
@@ -122,6 +134,7 @@ local buried_treasure = {
 			{ itemstring = "mcl_tools:sword_iron", weight = 1, amount_min = 1, amount_max = 1 },
 		}
 	},
+	nautilus_armor,
 }
 
 local function get_treasure_map(cpos)
@@ -228,6 +241,7 @@ mcl_structures.register_structure("shipwreck",{
 				{ itemstring = "mcl_armor:coast", weight = 20, amount_min = 2, amount_max = 2},
 				}
 			},
+			nautilus_armor,
 		}
 	}
 })

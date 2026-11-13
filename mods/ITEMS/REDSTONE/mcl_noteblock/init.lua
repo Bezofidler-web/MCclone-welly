@@ -73,10 +73,18 @@ local function sound_by_head(head_name)
 	end
 end
 
+local function notify_allays(pos)
+	for object in core.objects_inside_radius(pos, 16) do
+		local entity = object:get_luaentity()
+		if entity and entity.name == "mobs_mc:allay" then entity:hear_note(pos) end
+	end
+end
+
 local function noteblock_play(pos, param2)
 	local block_above_name = core.get_node({x=pos.x, y=pos.y+1, z=pos.z}).name
 	if core.get_item_group(block_above_name, "head") ~= 0 then
 		core.sound_play(sound_by_head(block_above_name), {pos = pos, max_hear_distance = 48})
+		notify_allays(pos)
 		return
 	elseif block_above_name ~= "air" then
 		return
@@ -141,6 +149,7 @@ local function noteblock_play(pos, param2)
 	})
 	core.sound_play(soundname,
 	{pos = pos, gain = 1.0, max_hear_distance = 48, pitch = pitch})
+	notify_allays(pos)
 end
 
 core.register_node("mcl_noteblock:noteblock", {

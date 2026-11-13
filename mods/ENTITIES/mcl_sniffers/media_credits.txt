@@ -1,0 +1,16 @@
+The Sniffer, digging Sniffer and Snifflet OBJ meshes are original
+Mineclonia artwork under CC BY-SA 4.0. Their UVs are compatible with
+the Java Edition 26.3 textures.
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The fallback textures are from Pixel Perfection Legacy 26.3-97.2 by NovaWostra
+and contributors, based on Hugh “XSSheep” Rutland's Pixel Perfection. They are
+distributed under CC BY-SA 4.0 and renamed for Mineclonia. Egg atlas regions
+were arranged into separate faces for the same texture layout as Java 26.3.
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://www.planetminecraft.com/texture-pack/131pixel-perfection/
+
+Behaviour references:
+https://www.minecraft.net/en-us/article/sniffer
+https://www.minecraft.net/en-us/article/pitcher-pod
+https://feedback.minecraft.net/hc/en-us/articles/16499677456781-Minecraft-Java-Edition-1-20-Trails-Tales

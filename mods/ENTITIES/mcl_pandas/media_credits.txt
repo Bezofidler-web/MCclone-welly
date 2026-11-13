@@ -1,0 +1,11 @@
+The adult and baby panda models are original Mineclonia artwork under CC BY-SA 4.0.
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The panda textures and spawn egg are from Pixel Perfection Legacy 26.3-97.2
+by NovaWostra and contributors, based on Hugh “XSSheep” Rutland's Pixel
+Perfection. They are used under CC BY-SA 4.0 and renamed for Mineclonia.
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://www.curseforge.com/minecraft/texture-packs/pixel-perfection-legacy/license
+
+Behaviour reference:
+https://www.minecraft.net/en-us/article/panda

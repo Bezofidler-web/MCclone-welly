@@ -47,3 +47,9 @@ mcl_trees.register_wood("pale_oak",{
 
 dofile(modpath .. "/resin_blocks.lua")
 dofile(modpath .. "/plants.lua")
+dofile(modpath .. "/creaking.lua")
+
+for i, schematic in ipairs(mcl_trees.woods.pale_oak.tree_schems_2x2) do
+	mcl_levelgen.register_portable_schematic("mcl_pale_oak:tree_" .. i, schematic.file, true)
+end
+mcl_levelgen.register_levelgen_script(modpath .. "/levelgen.lua")

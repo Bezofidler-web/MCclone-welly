@@ -27,7 +27,7 @@ mcl_structures.register_structure("woodland_cabin",{
 		local p2=vector.offset(p,def.sidelen,def.sidelen,def.sidelen)
 		mcl_structures.spawn_mobs("mobs_mc:vindicator",spawnon,p1,p2,pr,5)
 		mcl_structures.spawn_mobs("mobs_mc:evoker",spawnon,p1,p2,pr,1)
-		mcl_structures.spawn_mobs("mobs_mc:parrot",{"mcl_heads:wither_skeleton"},p1,p2,pr,1)
+		mcl_structures.spawn_mobs("mobs_mc:allay",{"mcl_heads:wither_skeleton"},p1,p2,pr,1)
 	end,
 	loot = {
 		["mcl_chests:chest_small" ] ={{

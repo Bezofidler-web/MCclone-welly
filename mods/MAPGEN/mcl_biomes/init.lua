@@ -5164,65 +5164,28 @@ local function register_decorations()
 		rotation = "random",
 	})
 
-	core.register_decoration({
-		deco_type = "schematic",
-		place_on = {"group:grass_block_no_snow", "mcl_pale_oak:pale_moss"},
-		sidelen = 16,
-		noise_params = {
-			offset = 0.01,
-			scale = 0.0015,
-			spread = {x = 125, y = 125, z = 125},
-			seed = 394,
-			octaves = 3,
-			persist = 0.66
-		},
-		biomes = {"PaleGarden"},
-		y_min = 4,
-		y_max = mcl_vars.mg_overworld_max,
-		schematic = mod_pale_oak.."/schematics/mcl_pale_oak_1.mts",
-		flags = "place_center_x, place_center_z",
-		rotation = "random",
-	})
-
-	core.register_decoration({
-		deco_type = "schematic",
-		place_on = {"group:grass_block_no_snow", "mcl_pale_oak:pale_moss"},
-		sidelen = 16,
-		noise_params = {
-			offset = 0.01,
-			scale = 0.0015,
-			spread = {x = 125, y = 125, z = 125},
-			seed = 483,
-			octaves = 3,
-			persist = 0.66
-		},
-		biomes = {"PaleGarden"},
-		y_min = 4,
-		y_max = mcl_vars.mg_overworld_max,
-		schematic = mod_pale_oak.."/schematics/mcl_pale_oak_2.mts",
-		flags = "place_center_x, place_center_z",
-		rotation = "random",
-	})
-
-	core.register_decoration({
-		deco_type = "schematic",
-		place_on = {"group:grass_block_no_snow", "mcl_pale_oak:pale_moss"},
-		sidelen = 16,
-		noise_params = {
-			offset = 0.01,
-			scale = 0.0015,
-			spread = {x = 125, y = 125, z = 125},
-			seed = 942,
-			octaves = 3,
-			persist = 0.66
-		},
-		biomes = {"PaleGarden"},
-		y_min = 4,
-		y_max = mcl_vars.mg_overworld_max,
-		schematic = mod_pale_oak.."/schematics/mcl_pale_oak_3.mts",
-		flags = "place_center_x, place_center_z",
-		rotation = "random",
-	})
+	for i, seed in ipairs({394, 483, 942}) do
+		core.register_decoration({
+			name = "mcl_biomes:pale_oak_tree_" .. i,
+			deco_type = "schematic",
+			place_on = {"group:grass_block_no_snow", "mcl_pale_oak:pale_moss"},
+			sidelen = 16,
+			noise_params = {
+				offset = 0.01,
+				scale = 0.0015,
+				spread = {x = 125, y = 125, z = 125},
+				seed = seed,
+				octaves = 3,
+				persist = 0.66
+			},
+			biomes = {"PaleGarden"},
+			y_min = 4,
+			y_max = mcl_vars.mg_overworld_max,
+			schematic = mod_pale_oak .. "/schematics/mcl_pale_oak_" .. i .. ".mts",
+			flags = "place_center_x, place_center_z",
+			rotation = "random",
+		})
+	end
 
 	core.register_decoration({
 		decoration = "mcl_pale_oak:pale_moss",
@@ -6509,6 +6472,7 @@ local function register_dimension_decorations()
 		decoration = "mcl_blackstone:soul_fire",
 	})
 	core.register_decoration({
+		name = "mcl_biomes:nether_fossil_1",
 		deco_type = "schematic",
 		place_on = {"mcl_blackstone:soul_soil","mcl_nether:soul_sand"},
 		sidelen = 16,
@@ -6521,6 +6485,7 @@ local function register_dimension_decorations()
 		rotation = "random",
 	})
 	core.register_decoration({
+		name = "mcl_biomes:nether_fossil_2",
 		deco_type = "schematic",
 		place_on = {"mcl_blackstone:soul_soil","mcl_nether:soul_sand"},
 		sidelen = 16,
@@ -6533,6 +6498,7 @@ local function register_dimension_decorations()
 		rotation = "random",
 	})
 	core.register_decoration({
+		name = "mcl_biomes:nether_fossil_3",
 		deco_type = "schematic",
 		place_on = {"mcl_blackstone:soul_soil","mcl_nether:soul_sand"},
 		sidelen = 16,
@@ -6545,6 +6511,7 @@ local function register_dimension_decorations()
 		rotation = "random",
 	})
 	core.register_decoration({
+		name = "mcl_biomes:nether_fossil_4",
 		deco_type = "schematic",
 		place_on = {"mcl_blackstone:soul_soil","mcl_nether:soul_sand"},
 		sidelen = 16,
@@ -6714,6 +6681,47 @@ register_dimension_biomes()
 register_dimension_ores()
 register_dimension_decorations()
 
+if not mcl_vars.enable_mcl_levelgen then
+	local fossil_decorations = {}
+	for i = 1, 4 do
+		local id = core.get_decoration_id("mcl_biomes:nether_fossil_" .. i)
+		if id then fossil_decorations[#fossil_decorations + 1] = id end
+	end
+	if #fossil_decorations > 0 then
+		core.set_gen_notify({decoration = true}, fossil_decorations)
+		local dried_ghast = "mcl_happy_ghast:dried_ghast"
+		local bone = "mcl_core:bone_block"
+		local offsets = {{ 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }}
+		local function place_dried_ghast(origin, minp, maxp)
+			local random = PcgRandom(core.hash_node_position(origin) + 14357921)
+			if random:next(1, 3) ~= 1 then return end
+			local a, b = vector.offset(origin, -2, 1, -2), vector.offset(origin, 2, 2, 2)
+			for _, pos in ipairs(core.find_nodes_in_area(a, b, {bone})) do
+				for _, offset in ipairs(offsets) do
+					local at = vector.offset(pos, offset[1], 0, offset[2])
+					if vector.in_area(at, minp, maxp) and core.get_node(at).name == "air" then
+						local below = core.get_node(vector.offset(at, 0, -1, 0)).name
+						if below ~= bone and core.get_item_group(below, "solid") > 0 then
+							core.set_node(at, {name = dried_ghast, param2 = random:next(0, 3)})
+							return
+						end
+					end
+				end
+			end
+		end
+		mcl_mapgen_core.register_generator("nether_fossil_dried_ghasts", nil, function(minp, maxp)
+			if maxp.y <= mcl_vars.mg_lava_nether_max or minp.y > mcl_vars.mg_nether_max
+				or not core.registered_nodes[dried_ghast] then return end
+			local notify = core.get_mapgen_object("gennotify")
+			for _, id in ipairs(fossil_decorations) do
+				for _, origin in ipairs(notify["decoration#" .. id] or {}) do
+					place_dried_ghast(origin, minp, maxp)
+				end
+			end
+		end)
+	end
+end
+
 local deco_ids_trees = {
 	core.get_decoration_id("mcl_biomes:mangrove_tree_1"),
 	core.get_decoration_id("mcl_biomes:mangrove_tree_2"),
@@ -6721,6 +6729,41 @@ local deco_ids_trees = {
 }
 for _,f in pairs(deco_ids_trees) do
 	core.set_gen_notify({decoration=true}, { f })
+end
+
+local pale_oak_decorations = {}
+for i = 1, 3 do
+	local id = core.get_decoration_id("mcl_biomes:pale_oak_tree_" .. i)
+	if id then pale_oak_decorations[#pale_oak_decorations + 1] = id end
+end
+
+if #pale_oak_decorations > 0 then
+	core.set_gen_notify({decoration = true}, pale_oak_decorations)
+	local pale_log = "mcl_trees:tree_pale_oak"
+	local function vertical_log(pos)
+		local node = core.get_node(pos)
+		return node.name == pale_log and node.param2 < 4
+	end
+
+	mcl_mapgen_core.register_generator("pale_oak_hearts", nil, function(_, _, blockseed)
+		local notify = core.get_mapgen_object("gennotify")
+		local random = PcgRandom(blockseed + 91231128)
+		for _, id in ipairs(pale_oak_decorations) do
+			for _, pos in ipairs(notify["decoration#" .. id] or {}) do
+				if random:next(1, 10) == 1 then
+					local minp = vector.offset(pos, -1, 2, -1)
+					local maxp = vector.offset(pos, 1, 4, 1)
+					for _, log_pos in ipairs(core.find_nodes_in_area(minp, maxp, {pale_log})) do
+						if vertical_log(log_pos) and vertical_log(vector.offset(log_pos, 0, 1, 0))
+								and vertical_log(vector.offset(log_pos, 0, -1, 0)) then
+							core.set_node(log_pos, {name = "mcl_pale_oak:creaking_heart_natural"})
+							break
+						end
+					end
+				end
+			end
+		end
+	end)
 end
 
 local function mangrove_roots_gen(gennotify, pr)

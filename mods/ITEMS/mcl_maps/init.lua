@@ -1166,7 +1166,7 @@ local explorer_map_toplevel = {
 function mcl_maps.register_explorer_map (name, color, itemdef)
 	core.register_craftitem (":" .. name, table.merge (explorer_map_toplevel,
 							   itemdef, {
-		inventory_image = table.concat ({
+		inventory_image = itemdef.inventory_image or table.concat ({
 			"mcl_maps_map_filled.png",
 			"^(mcl_maps_map_filled_markings.png",
 			"^[colorize:", color, ")",
@@ -1301,6 +1301,14 @@ mcl_maps.register_explorer_map ("mcl_maps:abandoned_camp_map", "#9b6943", {
 		"mcl_levelgen:abandoned_camp",
 	},
 	_treasure_symbol = "mcl_maps_abandoned_camp_marker.png",
+	_skip_existing_chunks = true,
+})
+
+mcl_maps.register_explorer_map ("mcl_maps:ancient_city_map", "#2f6063", {
+	description = S ("Buried Ancient City Map"),
+	inventory_image = "mcl_maps_ancient_city_map.png",
+	_explorer_map_structures = { "mcl_levelgen:ancient_city" },
+	_treasure_symbol = "mcl_maps_ancient_city_marker.png",
 	_skip_existing_chunks = true,
 })
 

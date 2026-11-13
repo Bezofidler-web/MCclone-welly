@@ -86,6 +86,9 @@ function mcl_bows.shoot_arrow(arrow_item, pos, dir, yaw, shooter, power, damage,
 	le._itemstring = arrow_item
 	local soundparam = {object=shooter, pos=not shooter and pos or nil, max_hear_distance=32}
 	core.sound_play("mcl_bows_bow_shoot", soundparam, true)
+	if mcl_sculk then
+		mcl_sculk.emit_vibration (pos, "projectile_shoot", shooter)
+	end
 	if shooter and shooter:is_player() then
 		if le.player == "" then
 			le.player = shooter

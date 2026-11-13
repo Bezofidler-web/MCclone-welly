@@ -77,6 +77,9 @@ local function get_pitch (dir)
 end
 
 function mcl_bows.shoot_arrow_crossbow (arrow_item, pos, dir, yaw, shooter, speed, damage, is_critical, crossbow_stack, collectable)
+	if mcl_sculk then
+		mcl_sculk.emit_vibration (pos, "projectile_shoot", shooter)
+	end
 	local has_multishot_enchantment
 		= crossbow_stack and mcl_enchanting.has_enchantment (crossbow_stack, "multishot")
 	core.sound_play({name="mcl_bows_crossbow_shoot", gain=0.035}, {pos=pos, max_hear_distance=32}, true)

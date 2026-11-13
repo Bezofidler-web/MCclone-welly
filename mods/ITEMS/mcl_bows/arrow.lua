@@ -404,6 +404,9 @@ function ARROW_ENTITY:on_solid_hit (node_pos, node, collisiondata)
 		node = core.get_node(node_pos)
 	end
 	if node.name == "air" or node.name == "ignore" then return end
+	if mcl_sculk then
+		mcl_sculk.emit_vibration (node_pos, "projectile_land", self._shooter, node.name)
+	end
 	local dir = vector.normalize (collisiondata.old_vel)
 	local movement = vector.multiply (dir, 0.15)
 	local pos = vector.add (collisiondata.new_pos, movement)
@@ -441,6 +444,9 @@ function ARROW_ENTITY:on_intersect(ray_hit)
 			table.insert(ignored, obj)
 			local shooter = self._shooter
 			local self_pos = selfobj:get_pos()
+			if mcl_sculk then
+				mcl_sculk.emit_vibration (ray_hit.intersection_point or self_pos, "projectile_land", shooter)
+			end
 			if obj:is_player() and shooter and shooter:is_valid() and shooter:is_player() then
 				-- “Ding” sound for hitting another player
 				core.sound_play({name="mcl_bows_hit_player", gain=0.1}, {to_player=shooter:get_player_name()}, true)

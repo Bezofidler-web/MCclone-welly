@@ -1,0 +1,12 @@
+The adult and baby camel models are original Mineclonia artwork under CC BY-SA 4.0.
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The camel textures, saddles and spawn eggs are from Pixel Perfection Legacy
+26.3-97.2 by NovaWostra and contributors, based on Hugh “XSSheep” Rutland's
+Pixel Perfection. They are used under CC BY-SA 4.0 and renamed for Mineclonia.
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://www.curseforge.com/minecraft/texture-packs/pixel-perfection-legacy/license
+
+Behaviour references:
+https://feedback.minecraft.net/hc/en-us/articles/16499677456781-Minecraft-Java-Edition-1-20-Trails-Tales
+https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-11

@@ -1,0 +1,14 @@
+The Creaking, eye overlay, spawn egg and six heart textures are from
+Pixel Perfection Legacy 26.3-97.2 by NovaWostra and contributors, continuing
+Pixel Perfection by Hugh “XSSheep” Rutland. Renamed for Mineclonia and
+distributed under CC BY-SA 4.0.
+
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The Creaking OBJ is a Mineclonia mesh with Java-compatible texture coordinates.
+Behaviour and proportions reference the Garden Awakens release notes and
+Mojang's Bedrock creator samples.
+
+https://feedback.minecraft.net/hc/en-us/articles/32385811139085-Minecraft-Java-Edition-1-21-4-The-Garden-Awakens
+https://github.com/Mojang/bedrock-samples

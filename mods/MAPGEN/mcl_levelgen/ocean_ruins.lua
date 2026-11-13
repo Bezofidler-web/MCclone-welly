@@ -29,6 +29,17 @@ mcl_levelgen.register_loot_table ("mcl_levelgen:ocean_ruins", {
 			{ itemstring = "mcl_core:apple_gold_enchanted", weight = 2, },
 		},
 	},
+	{
+		stacks_min = 1,
+		stacks_max = 1,
+		items = {
+			{nothing = true, weight = 148},
+			{itemstring = "mcl_nautilus:copper_nautilus_armor", weight = 20},
+			{itemstring = "mcl_nautilus:iron_nautilus_armor", weight = 10},
+			{itemstring = "mcl_nautilus:golden_nautilus_armor", weight = 5},
+			{itemstring = "mcl_nautilus:diamond_nautilus_armor", weight = 2},
+		},
+	},
 })
 
 local drowned_staticdata = core.serialize ({
@@ -240,7 +251,7 @@ local ocean_ruin_cold_processors = {
 	build_archeology_processor (cid_gravel, cid_suspicious_gravel,
 				    "ocean_ruins_cold", 5),
 	decay_processor,
-	build_gravel_sand_gravity_processor ("ocean_ruins_warm"),
+	build_gravel_sand_gravity_processor ("ocean_ruins_cold"),
 }
 
 local ocean_ruin_warm_processors = {

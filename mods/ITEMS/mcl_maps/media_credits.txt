@@ -1,2 +1,5 @@
 mcl_maps_abandoned_camp_marker.png is original pixel art for Mineclonia.
 It is released under CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).
+
+mcl_maps_ancient_city_marker.png and mcl_maps_ancient_city_map.png are original
+pixel art for Mineclonia, released under CC0 1.0 Universal.

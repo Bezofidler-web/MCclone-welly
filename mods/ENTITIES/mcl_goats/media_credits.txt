@@ -1,0 +1,10 @@
+Goat, kid, horn icon and spawn egg textures are from Pixel Perfection Legacy
+26.3-97.2 by NovaWostra and contributors, continuing Pixel Perfection by
+Hugh “XSSheep” Rutland. The PNGs are distributed under CC BY-SA 4.0.
+https://modrinth.com/resourcepack/pixel-perfection-legacy/version/26.3-97.2
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The models and basic animations are original to Mineclonia. The textures
+use compatible Minecraft Java UVs. The horn recordings and bleat are
+original synthesised approximations, released under CC0 1.0.
+https://creativecommons.org/publicdomain/zero/1.0/

@@ -42,6 +42,36 @@ local discard_air_processors = {
 	discard_air,
 }
 
+local dried_ghast_name = "mcl_happy_ghast:dried_ghast"
+local cid_dried_ghast = core.registered_nodes[dried_ghast_name]
+	and core.get_content_id (dried_ghast_name)
+local cid_bone = core.get_content_id ("mcl_core:bone_block")
+local get_block, set_block = mcl_levelgen.get_block, mcl_levelgen.set_block
+local neighbours = {{ 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }}
+
+local function place_dried_ghast (piece, _, x1, z1, x2, z2)
+	local x, y, z = piece.fossil_x, piece.bbox[2] + 1, piece.fossil_z
+	if x < x1 or x > x2 or z < z1 or z > z2 then
+		return
+	end
+	-- The anchor chunk owns this placement even when the fossil crosses a border.
+	local bbox = piece.bbox
+	for dx = math.max (x1, bbox[1]), math.min (x2, bbox[4]) do
+		for dz = math.max (z1, bbox[3]), math.min (z2, bbox[6]) do
+			local support = get_block (dx, y - 1, dz)
+			if support and support ~= cid_bone and mcl_levelgen.is_walkable (support)
+				and get_block (dx, y, dz) == cid_air then
+				for i, offset in ipairs (neighbours) do
+					if get_block (dx + offset[1], y, dz + offset[2]) == cid_bone then
+						set_block (dx, y, dz, cid_dried_ghast, (i + piece.ghast_rotation) % 4)
+						return
+					end
+				end
+			end
+		end
+	end
+end
+
 local function nether_fossil_create_start (self, level, terrain, rng, cx, cz)
 	local x, z = cx * 16 + rng:next_within (16),
 		cz * 16 + rng:next_within (16)
@@ -60,11 +90,18 @@ local function nether_fossil_create_start (self, level, terrain, rng, cx, cz)
 				and not air_water_or_lava_p (cid_below) then
 				local schematic
 					= schematics[1 + rng:next_within (#schematics)]
+				local piece = make_schematic_piece ("mcl_levelgen:" .. schematic,
+								    x, y - 1, z, "random", rng, true,
+								    true, discard_air_processors,
+								    nil, 1)
+				-- Mojang gives each Nether fossil one chance in three to carry a dried ghast.
+				if cid_dried_ghast and rng:next_within (3) == 0 then
+					piece.fossil_x, piece.fossil_z = x, z
+					piece.ghast_rotation = rng:next_within (4)
+					piece.placement_sentinel = place_dried_ghast
+				end
 				return create_structure_start (self, {
-					make_schematic_piece ("mcl_levelgen:" .. schematic,
-							      x, y - 1, z, "random", rng, true,
-							      true, discard_air_processors,
-							      nil, 1),
+					piece,
 				})
 
 			end

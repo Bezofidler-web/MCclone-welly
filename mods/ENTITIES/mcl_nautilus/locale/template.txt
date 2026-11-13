@@ -1,0 +1,11 @@
+# textdomain: mcl_nautilus
+Breath of the Nautilus=
+Copper Nautilus Armor=
+Diamond Nautilus Armor=
+Golden Nautilus Armor=
+Iron Nautilus Armor=
+Nautilus=
+Netherite Nautilus Armor=
+Pauses oxygen consumption underwater=
+Use it on a tamed Nautilus to equip it.=
+Zombie Nautilus=

@@ -434,6 +434,15 @@ function drowned:generate_default_equipment ()
 	end
 end
 
+function drowned:zombie_post_spawn ()
+	zombie.zombie_post_spawn (self)
+	local natural = self._drowned_natural_spawn
+	self._drowned_natural_spawn = nil
+	if (natural or self._structure_generation_spawn) and rawget (_G, "mcl_nautilus") then
+		mcl_nautilus.maybe_create_jockey (self, self._structure_generation_spawn)
+	end
+end
+
 function drowned:wielditem_better_than (stack, current)
 	local current_name = current:get_name ()
 	if current_name == "mcl_mobitems:nautilus_shell" then
@@ -817,12 +826,14 @@ function drowned_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_c
 	return false
 end
 
+local drowned_natural_spawn = core.serialize ({_drowned_natural_spawn = true})
+
 function drowned_spawner:spawn (spawn_pos, idx, sdata, pack_size)
 	if math.random () < 0.05 then
 		return core.add_entity (spawn_pos, "mobs_mc:baby_drowned")
-	else
-		return core.add_entity (spawn_pos, "mobs_mc:drowned")
 	end
+	-- Environmental packs start at index 1. Explicit spawner calls use 0.
+	return core.add_entity (spawn_pos, "mobs_mc:drowned", idx > 0 and drowned_natural_spawn or nil)
 end
 
 local drowned_spawner_river = table.merge (drowned_spawner, {

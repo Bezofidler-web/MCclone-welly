@@ -136,7 +136,18 @@ local cold = {
 				{ itemstring = "mcl_core:iron_ingot", weight = 15, amount_min = 1, amount_max = 5 },
 				{ itemstring = "mcl_core:apple_gold_enchanted", weight = 2, },
 				}
-			}
+			},
+			{
+				stacks_min = 1,
+				stacks_max = 1,
+				items = {
+					{nothing = true, weight = 148},
+					{itemstring = "mcl_nautilus:copper_nautilus_armor", weight = 20},
+					{itemstring = "mcl_nautilus:iron_nautilus_armor", weight = 10},
+					{itemstring = "mcl_nautilus:golden_nautilus_armor", weight = 5},
+					{itemstring = "mcl_nautilus:diamond_nautilus_armor", weight = 2},
+				},
+			},
 		},
 		["SUS"] = {
 			{
@@ -183,7 +194,7 @@ local warm = table.merge(cold,{
 				{ itemstring = "mcl_core:gold_nugget", weight = 2 },
 				{ itemstring = "mcl_pottery_sherds:angler", weight = 1, },
 				{ itemstring = "mcl_pottery_sherds:shelter", weight = 1, },
-				--FIXME: add sniffer egg { itemstring = "mobs_mc:SNIFFER", weight = 1, },
+				{ itemstring = "mcl_sniffers:sniffer_egg", weight = 1 },
 				{ itemstring = "mcl_pottery_sherds:snort", weight = 1, },
 				{ itemstring = "mcl_tools:axe_iron", weight = 1 },
 				}

@@ -31,6 +31,35 @@ function Get-PngSize([IO.Stream]$Stream) {
     }
 }
 
+function Write-TextureArchive([IO.Compression.ZipArchive]$Client, [string]$AssetPrefix, [string]$Path) {
+    $archive = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Create)
+    $count = 0
+    try {
+        foreach ($source in $Client.Entries) {
+            if (-not $source.Name -or -not $source.FullName.StartsWith($AssetPrefix, [StringComparison]::Ordinal)) {
+                continue
+            }
+            $relativePath = $source.FullName.Substring($AssetPrefix.Length)
+            if ($relativePath -notmatch '^[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*$' -or
+                ($relativePath -split '/') -contains '..' -or ($relativePath -split '/') -contains '.') {
+                throw "Invalid texture path in the Java JAR: $relativePath"
+            }
+            $target = $archive.CreateEntry($source.FullName)
+            $inputStream = $source.Open()
+            try {
+                $outputStream = $target.Open()
+                try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose() }
+            } finally {
+                $inputStream.Dispose()
+            }
+            if ($source.Name.EndsWith('.png', [StringComparison]::Ordinal)) { $count++ }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+    return $count
+}
+
 $game = Split-Path $PSScriptRoot -Parent
 $assets = 'assets/minecraft/textures/'
 $jarPath = (Resolve-Path -LiteralPath $ClientJar).Path
@@ -48,6 +77,7 @@ try {
 
     $packName = 'mineclonia-java-' + $version.ToLowerInvariant()
     $pack = Join-Path $outputPath $packName
+    $archiveName = 'java-texture-library.zip'
     $markerName = 'mineclonia-java-import.json'
     if (Test-Path -LiteralPath $pack) {
         $existing = Get-Item -LiteralPath $pack -Force
@@ -71,7 +101,7 @@ try {
         $source = $row.'Source path'.TrimStart('/') + '/' + $row.'Source file'
         $target = $row.'Target file'
         if (-not $stock.ContainsKey($target) -or
-            $source -notmatch '^assets/minecraft/textures/(block|item|entity|gui/sprites)/[a-z0-9_./-]+\.png$') {
+            $source -notmatch '^assets/minecraft/textures/(block|item|entity|gui/sprites|particle)/[a-z0-9_./-]+\.png$') {
             continue
         }
         if (-not $candidates.ContainsKey($target)) { $candidates[$target] = [Collections.Generic.List[string]]::new() }
@@ -82,7 +112,10 @@ try {
     $explicit = @{}
     foreach ($row in Import-Csv -LiteralPath (Join-Path $PSScriptRoot 'Java_Texture_Overrides.csv')) {
         if (-not $stock.ContainsKey($row.Target)) { throw "Unknown Mineclonia texture in supplemental mapping: $($row.Target)" }
-        $explicit[$row.Target] = $true
+        if ($row.Layout -and $row.Layout -notin 'vertical', 'proportional') {
+            throw "Unknown texture layout for $($row.Target): $($row.Layout)"
+        }
+        $explicit[$row.Target] = $row.Layout
         $candidates[$row.Target] = @($row.JavaPaths.Split('|') | ForEach-Object { $assets + $_ })
     }
 
@@ -101,6 +134,7 @@ try {
         $destinationSize = Get-PngSize ([IO.File]::OpenRead($stock[$target]))
         $sourceEntry = $null
         $reason = 'absent from this Java version'
+        $layout = $explicit[$target]
         foreach ($path in $paths) {
             $entry = $java.GetEntry($path)
             if (-not $entry -or $entry.Length -gt 8MB) { continue }
@@ -109,7 +143,10 @@ try {
 
             $sameSize = $sourceSize.Width -eq $destinationSize.Width -and $sourceSize.Height -eq $destinationSize.Height
             $sameShape = [long]$sourceSize.Width * $destinationSize.Height -eq [long]$sourceSize.Height * $destinationSize.Width
-            if ($sameSize -or ($sameShape -and $path -match '/(block|item)/')) {
+            $frameStrip = $layout -eq 'vertical' -and $sourceSize.Width -eq $destinationSize.Width -and
+                $sourceSize.Height % $sourceSize.Width -eq 0 -and $destinationSize.Height % $destinationSize.Width -eq 0 -and
+                $java.GetEntry($path + '.mcmeta')
+            if ($sameSize -or $frameStrip -or ($sameShape -and ($path -match '/(block|item)/' -or $layout -eq 'proportional'))) {
                 $sourceEntry = $entry
                 break
             }
@@ -127,12 +164,14 @@ try {
     foreach ($required in 'default_stone.png', 'default_dirt.png', 'default_tool_diamondpick.png') {
         if (-not [IO.File]::Exists((Join-Path $staging $required))) { throw "The JAR is missing a usable texture for $required." }
     }
+    $pngCount = Write-TextureArchive $java $assets (Join-Path $staging $archiveName)
     @(
         "name = $packName"
         "title = Minecraft Java $version for Mineclonia"
         'description = Local texture overlay generated from your Minecraft Java client.'
     ) | Set-Content -LiteralPath (Join-Path $staging 'texture_pack.conf') -Encoding utf8NoBOM
-    [ordered]@{ version = $version; textures = $imported; skipped = $skipped } |
+    [ordered]@{ version = $version; textures = $imported; skipped = $skipped
+        source_archive = $archiveName; source_png_count = $pngCount } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $staging $markerName) -Encoding utf8NoBOM
 
     if ([IO.Directory]::Exists($pack)) {
@@ -149,7 +188,8 @@ try {
         [IO.Directory]::Move($staging, $pack)
     }
     $staging = $null
-    Write-Host "Imported $($imported.Count) textures from Java $version. $($skipped.Count) mappings kept the game defaults."
+    Write-Host "Imported $($imported.Count) playable overrides from Java $version. $($skipped.Count) mappings kept the game defaults."
+    Write-Host "Archived all $pngCount Java textures and their metadata at $(Join-Path $pack $archiveName)"
     Write-Output $pack
 } finally {
     $java.Dispose()

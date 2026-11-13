@@ -184,6 +184,13 @@ local trading_items = {
 	--{ itemstring = "FIXME:spectral_arrow", weight = 40, amount_min = 6, amount_max = 12 },
 }
 
+core.register_on_mods_loaded(function ()
+	local dried_ghast = "mcl_happy_ghast:dried_ghast"
+	if core.registered_items[dried_ghast] then
+		trading_items[#trading_items + 1] = { itemstring = dried_ghast, weight = 10, amount_min = 1, amount_max = 1 }
+	end
+end)
+
 function mobs_mc.player_wears_gold(player)
 	for i=1, 6 do
 		local stack = player:get_inventory():get_stack("armor", i)

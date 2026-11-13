@@ -1,4 +1,6 @@
 # textdomain: mcl_weather
+Vibrant lighting=
+Enhances shadows, colour and fog. Enable the Luanti graphics effects for bloom, light shafts and water reflections.=
 Enable dust particles in the nether=
 Gives ability to control weather=
 Changes the weather to the specified parameter.=

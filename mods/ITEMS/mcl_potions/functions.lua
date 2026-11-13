@@ -276,6 +276,10 @@ mcl_potions.register_effect({
 	name = "weakness",
 	icon = "mcl_potions_effect_weak.png",
 	description = S("Weakness"),
+	res_condition = function(object)
+		local entity = object:get_luaentity()
+		return entity and entity._weakness_immune
+	end,
 	get_tt = function(factor)
 		return S("-@1% melee damage", 100*(1-factor))
 	end,

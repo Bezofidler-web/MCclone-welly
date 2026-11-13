@@ -43,6 +43,16 @@ local pillager_outpost_loot = {
 			{ itemstring = "mcl_bows:crossbow" },
 		},
 	},
+	{
+		stacks_min = 0,
+		stacks_max = 1,
+		items = {
+			{ itemstring = "mcl_goats:goat_horn_ponder" },
+			{ itemstring = "mcl_goats:goat_horn_sing" },
+			{ itemstring = "mcl_goats:goat_horn_seek" },
+			{ itemstring = "mcl_goats:goat_horn_feel" },
+		},
+	},
 }
 
 if not mcl_levelgen.is_levelgen_environment
@@ -63,7 +73,8 @@ if not mcl_levelgen.is_levelgen_environment
 			local n = pr:next (1, 3)
 
 			for i = 1, n do
-				core.add_entity (v, "mobs_mc:parrot")
+				local pos = vector.offset (v, (i - 2) * 0.27, -0.4, 0)
+				core.add_entity (pos, "mobs_mc:allay", core.serialize ({persistent = true}))
 			end
 		end
 	end

@@ -1,5 +1,79 @@
 local NIGHT_VISION_RATIO = 0.45
 local S = core.get_translator(core.get_current_modname())
+local vibrant_setting = "mcl_weather:vibrant_lighting"
+
+local standard_lighting = {
+	shadows = { intensity = 0.33, tint = "#000000" },
+	volumetric_light = { strength = 0.2 },
+	bloom = { intensity = 0.05, radius = 1, strength_factor = 1 },
+	exposure = {
+		luminance_min = -3.5,
+		luminance_max = -2.5,
+		exposure_correction = 0.35,
+		speed_dark_bright = 1500,
+		speed_bright_dark = 700,
+	},
+	saturation = 1.1,
+}
+
+local vibrant_lighting = {
+	overworld = {
+		shadows = { intensity = 0.52, tint = "#263958" },
+		volumetric_light = { strength = 0.29 },
+		bloom = { intensity = 0.076, radius = 1.25, strength_factor = 1.05 },
+		saturation = 1.17,
+	},
+	nether = {
+		shadows = { intensity = 0.13, tint = "#4A2325" },
+		volumetric_light = { strength = 0 },
+		bloom = { intensity = 0.09, radius = 1.32, strength_factor = 1.06 },
+		saturation = 1.09,
+	},
+	["end"] = {
+		shadows = { intensity = 0.18, tint = "#35334E" },
+		volumetric_light = { strength = 0 },
+		bloom = { intensity = 0.07, radius = 1.28, strength_factor = 1.06 },
+		saturation = 1.07,
+	},
+}
+local vibrant_exposure = {
+	luminance_min = -3.5,
+	luminance_max = -2.5,
+	exposure_correction = 0.12,
+	speed_dark_bright = 1500,
+	speed_bright_dark = 700,
+}
+
+local function vibrant_enabled (player)
+	return mcl_player.get_player_setting (player, vibrant_setting, false)
+end
+
+local function set_lighting (player)
+	if not player.set_lighting then return end
+	local dim = mcl_worlds.pos_to_dimension (player:get_pos ())
+	local lighting = vibrant_enabled (player) and vibrant_lighting[dim]
+	if lighting then
+		player:set_lighting (table.merge (lighting, {exposure = vibrant_exposure}))
+	else
+		player:set_lighting (standard_lighting)
+	end
+end
+
+local function fog_start (player, start)
+	return vibrant_enabled (player) and start or -1
+end
+
+mcl_player.register_player_setting (vibrant_setting, {
+	type = "boolean",
+	section = "Graphics",
+	short_desc = S ("Vibrant lighting"),
+	long_desc = S ("Enhances shadows, colour and fog. Enable the Luanti graphics effects for bloom, light shafts and water reflections."),
+	ui_default = "false",
+	on_change = function (player)
+		set_lighting (player)
+		mcl_weather.skycolor.update_sky_color ({player})
+	end,
+})
 
 mcl_player.register_player_setting("mcl_weather:enable_clouds", {
 	type = "boolean",
@@ -39,7 +113,7 @@ function mcl_weather.set_sky_box_clear(player, sky, fog)
 		type = "regular",
 		sky_color = sc,
 		fog = {
-			fog_start = -1,
+			fog_start = fog_start (player, 0.50),
 		},
 		clouds =  mcl_player.get_player_setting(player, "mcl_weather:enable_clouds", true),
 		auto_dim_skybox = false,
@@ -57,7 +131,7 @@ function mcl_weather.set_sky_color(player, def)
 		type = def.type,
 		sky_color = def.sky_color,
         fog = {
-			fog_start = -1,
+			fog_start = fog_start (player, def.fog_start or 0.33),
 		},
 		clouds = def.clouds,
 		auto_dim_skybox = false,
@@ -188,6 +262,7 @@ mcl_weather.skycolor = {
 						fog_moon_tint = water_color,
 						fog_tint_type = "custom"
 					},
+					fog = { fog_start = fog_start (player, 0.22) },
 					clouds = false,
 				})
 			end
@@ -262,6 +337,7 @@ mcl_weather.skycolor = {
 				player:set_sky({ type = "skybox",
 					base_color = biomesky,
 					textures = {t,t,t,t,t,t},
+					fog = { fog_start = fog_start (player, 0.42) },
 					clouds = false,
 				})
 				player:set_sun({visible = false , sunrise_visible = false})
@@ -284,6 +360,7 @@ mcl_weather.skycolor = {
 						fog_moon_tint = biomefog,
 						fog_tint_type = "custom"
 					},
+					fog_start = 0.22,
 					clouds = false,
 				})
 				player:set_sun({visible = false , sunrise_visible = false})
@@ -379,20 +456,7 @@ core.register_globalstep(function(dtime)
 end)
 
 local function initsky(player)
-	if player.set_lighting then
-		player:set_lighting({
-			shadows = { intensity = 0.33 },
-			volumetric_light = { strength = 0.2 },
-			exposure = {
-				luminance_min = -3.5,
-				luminance_max = -2.5,
-				exposure_correction = 0.35,
-				speed_dark_bright = 1500,
-				speed_bright_dark = 700,
-			},
-			saturation = 1.1,
-		})
-	end
+	set_lighting (player)
 
 	if (mcl_weather.skycolor.active) then
 		mcl_weather.skycolor.force_update = true
@@ -405,5 +469,6 @@ core.register_on_joinplayer(initsky)
 core.register_on_respawnplayer(initsky)
 
 mcl_worlds.register_on_dimension_change(function(player)
+	set_lighting (player)
 	mcl_weather.skycolor.update_sky_color({player})
 end)

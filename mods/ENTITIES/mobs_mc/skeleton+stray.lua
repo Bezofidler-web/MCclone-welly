@@ -520,13 +520,57 @@ end
 mcl_mobs.register_mob ("mobs_mc:bogged", bogged)
 
 ------------------------------------------------------------------------
--- Skeleton, Stray and Bogged spawning.
+-- Parched.
+-------------------------------------------------------------------------
+
+local parched = table.merge (skeleton, {
+	description = S ("Parched"),
+	ignited_by_sunlight = false,
+	conversion_step = false,
+	_weakness_immune = true,
+	shoot_interval = mcl_vars.difficulty >= 3 and 1.5 or 2.5, -- The bow draw adds one second.
+	textures = {"mobs_mc_empty.png", "mobs_mc_empty.png", "mobs_mc_parched.png"},
+	drops = {skeleton.drops[1], skeleton.drops[2]},
+	on_die = false,
+	validate_waypoints = mob_class.validate_waypoints,
+	ai_step = mob_class.ai_step,
+	ai_functions = {mob_class.check_avoid, mob_class.check_attack, mob_class.check_pace},
+})
+
+local weakness_arrow = "mcl_potions:weakness_arrow"
+local parched_arrow = table.copy (core.registered_entities[weakness_arrow .. "_entity"])
+parched_arrow.initial_properties.static_save = false
+function parched_arrow:_extra_hit_func (target)
+	mcl_potions.give_effect_by_level ("weakness", target, 1, 30)
+end
+core.register_entity ("mobs_mc:parched_arrow_entity", parched_arrow)
+
+function parched:shoot_arrow (pos, dir)
+	return mcl_bows.shoot_arrow ("mobs_mc:parched_arrow", pos, dir, self:get_yaw (),
+				     self.object, 0.5333333, nil, false, self:get_wielditem ())
+end
+
+function parched:item_drop (cooked, looting, reason)
+	mob_class.item_drop (self, cooked, looting, reason)
+	if mcl_vars.mobs_drop_items and self.last_player_hit_time
+		and core.get_gametime () - self.last_player_hit_time <= 5
+		and (math.random (0, 1) == 1 or math.random () * (looting or 0) >= 0.5) then
+		core.add_item (self.object:get_pos (), weakness_arrow)
+	end
+end
+
+mcl_mobs.register_mob ("mobs_mc:parched", parched)
+
+-------------------------------------------------------------------------
+-- Skeleton spawn eggs.
 ------------------------------------------------------------------------
 
 mcl_mobs.register_egg ("mobs_mc:skeleton", S("Skeleton"), "#c1c1c1", "#494949", 0)
 mcl_mobs.register_egg ("mobs_mc:stray", S("Stray"), "#5f7476", "#dae8e7", 0)
 mcl_mobs.register_egg ("mobs_mc:bogged", S ("Bogged"), "#788348", "#3a4723", 0)
 core.override_item ("mobs_mc:bogged", {inventory_image = "mobs_mc_bogged_spawn_egg.png"})
+mcl_mobs.register_egg ("mobs_mc:parched", S ("Parched"), "#d5b18a", "#857151", 0)
+core.override_item ("mobs_mc:parched", {inventory_image = "mobs_mc_parched_spawn_egg.png"})
 
 ------------------------------------------------------------------------
 -- Modern Skeleton + Stray spawning.
@@ -546,7 +590,7 @@ local cold_biomes = {
 local swamp_biomes = {"Swamp", "MangroveSwamp"}
 
 for _, biome in pairs (mobs_mc.monster_biomes) do
-	if table.indexof (cold_biomes, biome) == -1 and table.indexof (swamp_biomes, biome) == -1 then
+	if biome ~= "Desert" and table.indexof (cold_biomes, biome) == -1 and table.indexof (swamp_biomes, biome) == -1 then
 		table.insert (skeleton_biomes, biome)
 	end
 end
@@ -611,6 +655,17 @@ local bogged_spawner = table.merge (mobs_mc.monster_spawner, {
 	biomes = swamp_biomes,
 })
 
+local skeleton_spawner_desert = table.merge (skeleton_spawner, {
+	weight = 50,
+	biomes = {"Desert"},
+})
+
+local parched_spawner = table.merge (mobs_mc.monster_spawner, {
+	name = "mobs_mc:parched",
+	weight = 50,
+	biomes = {"Desert"},
+})
+
 local monster_spawner = mobs_mc.monster_spawner
 
 function stray_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_cache,
@@ -634,3 +689,8 @@ mcl_mobs.register_spawner (skeleton_spawner_swamp)
 mcl_mobs.register_spawner (skeleton_spawner_nether_fortress)
 mcl_mobs.register_spawner (stray_spawner)
 mcl_mobs.register_spawner (bogged_spawner)
+
+parched_spawner.test_spawn_position = stray_spawner.test_spawn_position
+parched_spawner.describe_additional_spawning_criteria = stray_spawner.describe_additional_spawning_criteria
+mcl_mobs.register_spawner (skeleton_spawner_desert)
+mcl_mobs.register_spawner (parched_spawner)

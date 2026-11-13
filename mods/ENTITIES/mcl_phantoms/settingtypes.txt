@@ -1,0 +1,5 @@
+# Allow natural phantom spawning over players who have gone without sleep.
+mcl_phantom_insomnia (Spawn phantoms from insomnia) bool true
+
+# Connected play time without rest before a phantom can spawn. Defaults to three Minecraft days.
+mcl_phantom_insomnia_seconds (Phantom insomnia threshold in seconds) float 3600 1 604800

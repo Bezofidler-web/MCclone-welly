@@ -209,6 +209,8 @@ function wolf:compute_textures ()
 	local variant = wolf_variants[self._wolf_variant]
 	assert (variant)
 	if self.tamed then
+		local armor_texture, armor_overlay = "blank.png", "blank.png"
+		if mobs_mc.wolf_armor then armor_texture, armor_overlay = mobs_mc.wolf_armor.textures (self) end
 		return {
 			table.concat ({
 				variant.tame_texture,
@@ -219,8 +221,8 @@ function wolf:compute_textures ()
 				":192)",
 				self:wetness_modifier (),
 			}),
-			"blank.png", -- Wolf armor.
-			"blank.png", -- Wolf armor overlay.
+			armor_texture,
+			armor_overlay,
 		}
 	elseif self.attack then
 		return {
@@ -241,6 +243,18 @@ function wolf:compute_textures ()
 			"blank.png",
 		}
 	end
+end
+
+function wolf:receive_damage (reason, damage)
+	if self.dead or self.removed then return false end
+	if mobs_mc.wolf_armor and mobs_mc.wolf_armor.absorb (self, reason, damage) then
+		return false
+	end
+	return mob_class.receive_damage (self, reason, damage)
+end
+
+function wolf:on_die (pos)
+	if mobs_mc.wolf_armor then mobs_mc.wolf_armor.drop (self, pos) end
 end
 
 function wolf:update_textures ()
@@ -481,6 +495,7 @@ function wolf:on_rightclick (clicker)
 	local self_pos = self.object:get_pos ()
 
 	if self.tamed then
+		if mobs_mc.wolf_armor and mobs_mc.wolf_armor.interact (self, clicker, stack) then return end
 		local heal = wolf_food[name]
 		local props = self.object:get_properties ()
 		if heal and self.health < props.hp_max then
@@ -518,10 +533,6 @@ function wolf:on_rightclick (clicker)
 			end
 			return
 		end
-
-		--------------------------------------------------------
-		-- TODO: wolf armor.
-		--------------------------------------------------------
 
 		if heal and self:feed_tame (clicker, nil, true, false, false, false) then
 			return
