@@ -478,7 +478,7 @@ function mcl_mobs.remove_driving_hud (player)
 	local attach = player:get_attach ()
 	if attach then
 		local luaentity = attach:get_luaentity ()
-		if luaentity._is_mob and player == luaentity.driver then
+		if luaentity and luaentity.is_mob and player == luaentity.driver then
 			return
 		end
 	end
