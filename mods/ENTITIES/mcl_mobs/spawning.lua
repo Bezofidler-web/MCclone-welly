@@ -4,7 +4,9 @@ local ipairs = ipairs
 --lua locals
 local mob_class = mcl_mobs.mob_class
 
-local instant_despawn_range = 128
+local function despawn_range(category)
+	return category == "water_ambient" and 64 or 128
+end
 local random_despawn_range = 32
 
 local logging = core.settings:get_bool("mcl_logging_mobs_spawn", false)
@@ -89,8 +91,8 @@ function mob_class:check_despawn (pos, dtime)
 		if not self:despawn_ok (min_dist) then
 			self._inactivity_timer = 0
 			return false
-		elseif min_dist > instant_despawn_range then
-			self:kill_me ("no players within distance " .. instant_despawn_range)
+		elseif min_dist > despawn_range(self._spawn_category) then
+			self:kill_me ("no players within despawn distance")
 			return true
 		elseif min_dist > random_despawn_range then
 			if self._inactivity_timer >= 30.0 then
@@ -108,6 +110,8 @@ function mob_class:check_despawn (pos, dtime)
 			end
 
 			return false
+		else
+			self._inactivity_timer = 0
 		end
 	end
 	return false
@@ -326,9 +330,9 @@ local function collect_unique_chunks (level)
 		local chunk_x = math.floor (pos.x / 16.0)
 		local chunk_z = math.floor (pos.z / 16.0)
 		local chunk_dim = mcl_worlds.pos_to_dimension (pos)
-		players[player] = pos
 
 		if chunk_dim == level then
+			players[player] = pos
 			local start, fin = level_y_range (level, pos)
 
 			for x = chunk_x - SPAWN_DISTANCE, chunk_x + SPAWN_DISTANCE do
@@ -537,7 +541,7 @@ local spawn_categories = {
 	["creature"] = {
 		chunk_mob_cap = 10,
 		min_chunk_mob_cap = 10,
-		is_friendly = false,
+		is_friendly = true,
 		is_animal = true,
 	},
 	["ambient"] = {
@@ -565,7 +569,7 @@ local spawn_categories = {
 		is_animal = false,
 	},
 	["water_ambient"] = {
-		chunk_mob_cap = 5,
+		chunk_mob_cap = 20,
 		min_chunk_mob_cap = 5,
 		is_friendly = true,
 		is_animal = false,
@@ -589,19 +593,12 @@ end
 -- 	return dx * dx + dz * dz
 -- end
 
-local function get_nearest_player (pos, list)
-	local dist, pos_nearest, player = nil
-
-	for player_1, test_pos in pairs (list) do
-		local d = dist_sqr (test_pos, pos)
-		if not dist or dist > d then
-			dist = d
-			pos_nearest = test_pos
-			player = player_1
-		end
+local function nearest_player_distance_sqr (pos, players)
+	local nearest = math.huge
+	for _, player_pos in pairs (players) do
+		nearest = math.min(nearest, dist_sqr(player_pos, pos))
 	end
-
-	return player, pos_nearest
+	return nearest
 end
 
 local function get_weighted_value (mob_types, rng)
@@ -681,9 +678,6 @@ end
 
 local function spawn_a_pack (pos, players, category, scratch0,
 			     existing, global_max)
-	local player, player_pos = get_nearest_player (pos, players)
-	assert (player and player_pos)
-
 	local mob_def = get_eligible_spawn_type (pos, category)
 	if not mob_def then
 		return
@@ -703,10 +697,10 @@ local function spawn_a_pack (pos, players, category, scratch0,
 		spawn_pos.z = z + dz
 		pos.x = x + dx
 		pos.z = z + dz
-		local dist = dist_sqr (player_pos, spawn_pos)
+		local dist = nearest_player_distance_sqr (spawn_pos, players)
 
 		-- Is it possible to spawn mobs here?
-		if dist < mob_def.despawn_distance_sqr
+		if dist <= mob_def.despawn_distance_sqr
 			and dist > 576.0
 			and test_spawn_position (mob_def, spawn_pos, pos, sdata, {}, nil)
 			and test_spawn_clearance (mob_def, spawn_pos, sdata)
@@ -965,6 +959,8 @@ function mcl_mobs.register_spawner (spawner)
 		       .. "after mod initialization")
 	end
 	local spawner = table.merge (default_spawner, spawner)
+	local limit = despawn_range(spawner.spawn_category)
+	spawner.despawn_distance_sqr = math.min(spawner.despawn_distance_sqr, limit * limit)
 	table.insert (registered_spawners, spawner)
 
 	if spawner.is_canonical then

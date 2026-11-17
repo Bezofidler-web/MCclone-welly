@@ -98,8 +98,7 @@ local function test()
 	local hidden = core.registered_nodes["mcl_ocean:sea_pickle_2_sand"]
 	assert(hidden.inventory_image:find(core.registered_nodes["mcl_core:sand"].tiles[1], 1, true))
 
-	core.log("action", "GAMEPLAY TEST PASSED")
-	core.request_shutdown("Gameplay test complete", false, 0)
+	dofile(core.get_modpath("mcwelly_gameplay_test") .. "/spawning.lua")
 end
 
 core.register_on_mods_loaded(function() core.after(0, test) end)

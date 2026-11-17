@@ -2,13 +2,20 @@ local NIGHT_VISION_RATIO = 0.45
 local S = core.get_translator(core.get_current_modname())
 local vibrant_setting = "mcl_weather:vibrant_lighting"
 local clouds_setting = "mcl_weather:enable_clouds"
+local visibility_setting = "mcl_weather:low_light_visibility"
 local clear_cloud_color = "#FFF0F0E5"
 local weather_cloud_colors = { rain = "#5D5D5FE8", thunder = "#3D3D3FE8" }
 local water_at_eye = {}
 local default_sky_color = "#78A7FF"
 local default_horizon_color = "#C0D8FF"
 local default_water_fog = "#050533"
+local water_fog_lift = "#5099B9"
 local sky_sample_spacing = 8
+
+-- Luanti 5.18 converts the existing map light into display brightness using
+-- this table on each client. A visible level zero still counts as zero for
+-- spawning and all other game mechanics. Full sunlight stays at 255.
+local low_light_curve = {61, 71, 80, 90, 100, 112, 124, 136, 149, 163, 177, 191, 206, 222, 238, 255}
 
 -- Overworld water fog attributes from Java Edition 26.3. The order matters
 -- for the native mapgen, where warmer ocean aliases overlap.
@@ -84,15 +91,22 @@ local function vibrant_enabled (player)
 	return mcl_player.get_player_setting (player, vibrant_setting, false)
 end
 
+local function visibility_enabled (player)
+	return mcl_player.get_player_setting (player, visibility_setting, true)
+end
+
+local function display_lighting (player)
+	return {light_curve = visibility_enabled (player) and low_light_curve or {}}
+end
+
 local function set_lighting (player)
 	if not player.set_lighting then return end
 	local dim = mcl_worlds.pos_to_dimension (player:get_pos ())
 	local lighting = vibrant_enabled (player) and vibrant_lighting[dim]
-	if lighting then
-		player:set_lighting (table.merge (lighting, {exposure = vibrant_exposure}))
-	else
-		player:set_lighting (standard_lighting)
-	end
+	player:set_lighting (table.merge (lighting or standard_lighting, {
+		exposure = lighting and vibrant_exposure or standard_lighting.exposure,
+		static = display_lighting (player),
+	}))
 end
 
 local function sky_fog (player, start, distance, color)
@@ -135,6 +149,20 @@ mcl_player.register_player_setting (vibrant_setting, {
 	ui_default = "false",
 	on_change = function (player)
 		set_lighting (player)
+		mcl_weather.skycolor.update_sky_color ({player})
+	end,
+})
+
+mcl_player.register_player_setting (visibility_setting, {
+	type = "boolean",
+	section = "Graphics",
+	short_desc = S ("Brighter caves and water"),
+	long_desc = S ("Make caves easier to see and extend underwater visibility. This changes only what you see."),
+	ui_default = "true",
+	on_change = function (player)
+		if player.set_lighting then
+			player:set_lighting ({static = display_lighting (player)})
+		end
 		mcl_weather.skycolor.update_sky_color ({player})
 	end,
 })
@@ -217,6 +245,24 @@ end
 local function rgb_hex (color)
 	return ("#%02X%02X%02X"):format (
 		math.floor (color.r + 0.5), math.floor (color.g + 0.5), math.floor (color.b + 0.5))
+end
+
+local function water_view (player, pos, dim)
+	local color, distance_factor = "#1D476D", 1
+	if dim == "overworld" then
+		color, distance_factor = get_water_fog (mcl_util.get_nodepos (pos))
+	end
+	local clear = visibility_enabled (player)
+	local night_vision = player:get_meta ():get_int ("night_vision") == 1
+	local distance = clear and (night_vision and 112 or 72) or (night_vision and 88 or 48)
+	local start = clear and (night_vision and 0.40 or 0.23) or (night_vision and 0.35 or 0.10)
+	if clear then
+		local blend = {r = 0, g = 0, b = 0}
+		add_weighted_color (blend, color, 0.58)
+		add_weighted_color (blend, water_fog_lift, 0.42)
+		color = rgb_hex (blend)
+	end
+	return color, start, math.floor (distance * distance_factor + 0.5)
 end
 
 local function get_blended_sky_colors (pos)
@@ -333,13 +379,7 @@ mcl_weather.skycolor = {
 			local water = get_water_at_eye (player, pos)
 			water_at_eye[player] = water
 			if water then
-				local water_color, distance_factor = "#1D476D", 1
-				if dim == "overworld" then
-					water_color, distance_factor = get_water_fog (mcl_util.get_nodepos (pos))
-				end
-				local night_vision = player:get_meta ():get_int ("night_vision") == 1
-				local distance = math.floor ((night_vision and 88 or 48) * distance_factor + 0.5)
-				local fog_start = night_vision and 0.35 or 0.10
+				local water_color, fog_start, distance = water_view (player, pos, dim)
 				player:set_sky({
 					type = "plain",
 					base_color = water_color,

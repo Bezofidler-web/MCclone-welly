@@ -60,7 +60,14 @@ if (-not (Test-Path -LiteralPath $configPath)) {
     Set-ConfigLines $settings
 } else {
     # Existing profiles pick up new defaults without replacing explicit choices.
-    $defaults = foreach ($setting in 'display_gamma', 'pitch_move') {
+    $legacyRange = @{ Fast = 112; Fancy = 192; Vibrant = 176 }[$Profile]
+    $lines = @(Get-Content -LiteralPath $configPath)
+    $rangePattern = '^\s*viewing_range\s*=\s*' + $legacyRange + '\s*$'
+    if ($lines -match $rangePattern) {
+        $newRange = (Select-String -LiteralPath $template -Pattern '^viewing_range\s*=').Line
+        Set-ConfigLines ($lines -replace $rangePattern, $newRange)
+    }
+    $defaults = foreach ($setting in 'display_gamma', 'pitch_move', 'viewing_range') {
         $pattern = "^\s*$setting\s*="
         if (-not (Select-String -LiteralPath $configPath -Pattern $pattern -Quiet)) {
             (Select-String -LiteralPath $template -Pattern $pattern).Line

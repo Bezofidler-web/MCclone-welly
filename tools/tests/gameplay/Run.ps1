@@ -8,7 +8,7 @@ $world = Join-Path $run 'world'
 $mod = Join-Path $world 'worldmods/mcwelly_gameplay_test'
 $userPath = Join-Path $run 'user'
 New-Item -ItemType Directory -Path $mod,$userPath | Out-Null
-Copy-Item -LiteralPath "$PSScriptRoot/init.lua","$PSScriptRoot/mod.conf" -Destination $mod
+Copy-Item -LiteralPath "$PSScriptRoot/init.lua","$PSScriptRoot/mod.conf","$PSScriptRoot/spawning.lua" -Destination $mod
 @'
 gameid = mineclonia
 backend = sqlite3
@@ -26,6 +26,7 @@ port = $port
 server_announce = false
 ipv6_server = false
 mg_name = v7
+fixed_map_seed = 11739352701521975432
 mobs_spawn = false
 "@ | Set-Content "$run/server.conf"
 $log = Join-Path $run 'server.log'

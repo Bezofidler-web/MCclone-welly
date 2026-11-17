@@ -280,9 +280,11 @@ The launcher configures a bundled pixel font and translucent chat where the
 profile has no preference. Set a custom `font_path` in the client config to
 choose another font. **T**, **/** and **Esc** use Luanti’s native controls.
 
-Profiles default to `display_gamma = 1.22`. This gently brightens dim areas
-such as torch-lit caves. Fully unlit blocks stay dark, and the server's light
-levels and spawning rules are unchanged. Custom gamma settings are preserved.
+**Options → Video Settings → Brighter caves and water** is on by default.
+On Luanti 5.18 it brightens low-light levels, including unlit caves. It also
+lightens underwater fog and increases sight distance. Use the switch to
+restore the original dark appearance. Your client gamma still applies and
+the game uses the original block and sky light for spawning and other rules.
 
 ## Native Java-style Windows client
 

@@ -1,5 +1,7 @@
 # textdomain: mcl_weather
 Vibrant lighting=
+Brighter caves and water=
+Make caves easier to see and extend underwater visibility. This changes only what you see.=
 Enhances shadows, colour and fog. Enable the Luanti graphics effects for bloom, light shafts and water reflections.=
 Enable dust particles in the nether=
 Gives ability to control weather=

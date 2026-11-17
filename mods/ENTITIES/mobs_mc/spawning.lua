@@ -160,7 +160,7 @@ function animal_spawner:describe_supporting_nodes ()
 end
 
 function animal_spawner:get_misc_spawning_description ()
-	return S ("This mob will spawn infrequently @1 with a surface occupying a full node when no obstructions exist within a volume @2 nodes in size around the center of such a node's upper surface, in light levels of 8 or greater.",
+	return S ("This mob will spawn infrequently @1 with a surface occupying a full node when no obstructions exist within a volume @2 nodes in size around the center of such a node's upper surface, in light levels of 9 or greater.",
 		  self:describe_supporting_nodes (), self:describe_mob_collision_box ())
 end
 
@@ -227,7 +227,7 @@ local monster_spawner = table.merge (default_spawner, {
 	pack_min = 4,
 	pack_max = 4,
 	max_artificial_light = 0,
-	max_light = 6,
+	max_light = 7,
 })
 
 function monster_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_cache,
@@ -244,14 +244,24 @@ function monster_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_c
 
 	if default_spawner.test_spawn_position (self, spawn_pos, node_pos,
 						sdata, node_cache, spawn_flag) then
-		-- Natural light tests are expensive...
+		if spawn_flag == "trial_spawner" then return true end
+		if self.max_artificial_light == 0 and self.max_light == 7
+				and mcl_worlds.pos_to_dimension(node_pos) == "overworld" then
+			-- Java checks sky exposure before night-time dimming, then rolls
+			-- the dimension's independent threshold for local brightness.
+			local sky = core.get_natural_light(node_pos, 0.5)
+			if not sky or sky > math.random(0, 31) then return false end
+			local brightness
+			if mcl_weather.get_weather() == "thunder" then
+				brightness = math.max(light, sky - 10)
+			else
+				brightness = core.get_node_light(node_pos)
+			end
+			return brightness ~= nil and brightness <= math.random(0, 7)
+		end
 		local natural_light = core.get_natural_light (node_pos)
-		if spawn_flag ~= "trial_spawner"
-			and (
-				not natural_light
-				or natural_light > self.max_light
-				or natural_light > math.random (0, 31)
-			) then
+		if not natural_light or natural_light > self.max_light
+			or natural_light > math.random (0, 31) then
 			return false
 		end
 		return true
