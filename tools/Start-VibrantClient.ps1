@@ -53,9 +53,6 @@ $configPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 $template = Join-Path $game "$fileName.example"
 if (-not (Test-Path -LiteralPath $configPath)) {
     $settings = Get-Content -LiteralPath $template
-    if ($TexturePack -and (Test-Path -LiteralPath $TexturePack -PathType Container)) {
-        $settings += 'texture_path = ' + (Resolve-Path -LiteralPath $TexturePack).Path
-    }
     [void][IO.Directory]::CreateDirectory((Split-Path $configPath -Parent))
     Set-ConfigLines $settings
 } else {
@@ -117,17 +114,23 @@ if ($JavaUi -or (!$explicitClient -and @($candidates)[0] -eq $nativeClient)) {
 
 $loadingPack = Join-Path $game 'menu/loading'
 $textureSetting = Select-String -LiteralPath $configPath -Pattern '^\s*texture_path\s*=' | Select-Object -Last 1
-if (!$textureSetting) {
-    Add-ConfigLines @("texture_path = $loadingPack")
-} else {
+$separator = [IO.Path]::PathSeparator
+$packs = @()
+if ($textureSetting) {
     $packPaths = ($textureSetting.Line -split '=', 2)[1].Trim()
-    $separator = [IO.Path]::PathSeparator
-    if ($loadingPack -notin $packPaths.Split($separator, [StringSplitOptions]::RemoveEmptyEntries)) {
-        $lines = @(Get-Content -LiteralPath $configPath)
-        $packs = if ($packPaths) { $packPaths + $separator + $loadingPack } else { $loadingPack }
-        $lines[$textureSetting.LineNumber - 1] = "texture_path = $packs"
-        Set-ConfigLines $lines
-    }
+    $packs = @($packPaths.Split($separator, [StringSplitOptions]::RemoveEmptyEntries) |
+        Where-Object { $_ -ne $loadingPack })
+}
+if (!$packs -and $TexturePack -and (Test-Path -LiteralPath $TexturePack -PathType Container)) {
+    $packs = @((Resolve-Path -LiteralPath $TexturePack).Path)
+}
+$newTextureSetting = 'texture_path = ' + (($packs + $loadingPack) -join $separator)
+if (!$textureSetting) {
+    Add-ConfigLines @($newTextureSetting)
+} elseif ($textureSetting.Line -ne $newTextureSetting) {
+    $lines = @(Get-Content -LiteralPath $configPath)
+    $lines[$textureSetting.LineNumber - 1] = $newTextureSetting
+    Set-ConfigLines $lines
 }
 
 if ($TitleScreen -or -not $PrepareOnly) {

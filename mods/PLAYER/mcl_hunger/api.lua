@@ -69,7 +69,7 @@ if mcl_hunger.active then
 	function mcl_hunger.exhaust(playername, increase)
 		local player = core.get_player_by_name(playername)
 		if not player or mcl_vars.difficulty == 0 then return false end
-		mcl_hunger.set_exhaustion(player, mcl_hunger.get_exhaustion(player) + increase)
+		mcl_hunger.set_exhaustion(player, mcl_hunger.get_exhaustion(player) + increase * 0.5)
 		if mcl_hunger.get_exhaustion(player) >= mcl_hunger.EXHAUST_LVL then
 			mcl_hunger.set_exhaustion(player, 0.0)
 			local s = mcl_hunger.get_saturation(player)

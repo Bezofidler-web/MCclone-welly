@@ -230,9 +230,11 @@ Use the client JAR from your own Minecraft Java installation. This example uses
 .\tools\Import-JavaTextures.ps1 -ClientJar "$env:APPDATA\.minecraft\versions\26.3\26.3.jar"
 ```
 
-Copy the resulting `mineclonia-java-<version>` folder from `local\textures` to
-your Luanti `textures` folder, then select it in the **Content** tab. Each player
-does this on their own device. Add `-Force` to refresh an earlier pack.
+The Windows launcher automatically picks up the imported 26.3 pack unless the
+profile already selects another pack. If you launch directly from Luanti, copy
+`mineclonia-java-<version>` from `local\textures` into your Luanti `textures` folder
+and select it in the **Content** tab. Each player imports the assets on their
+own device. Add `-Force` to refresh an earlier pack.
 The overlay includes the Java hotbar, armour slots, menu buttons, book page,
 Crafter sprites and End sky. Use `-TitlePanorama 'C:\path\to\panorama.png'`
 to supply a locally available title image. Otherwise the launcher uses the
