@@ -3,7 +3,6 @@
 param(
     [string]$LuantiExe,
     [string]$Config,
-    [string]$TexturePack = (Join-Path $PSScriptRoot '..\local\textures\mineclonia-java-26.3'),
     [ValidateSet('Fast', 'Fancy', 'Vibrant')][string]$Profile = 'Vibrant',
     [switch]$PrepareOnly,
     [switch]$TitleScreen,
@@ -17,6 +16,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $game = Split-Path $PSScriptRoot -Parent
 $gamePath = Split-Path $game -Parent
+$javaPack = Join-Path $game 'local/textures/mineclonia-java-26.3'
+if (!(Test-Path -LiteralPath (Join-Path $javaPack 'texture_pack.conf') -PathType Leaf)) {
+    throw 'This launcher requires the Minecraft Java 26.3 textures. Import them from your Minecraft installation with tools\Import-JavaTextures.ps1. See FRIENDS.md.'
+}
 $nativeClient = Join-Path $game 'local/java-client/bin/luanti.exe'
 $stockClient = Join-Path $gamePath '.friends-work/luanti-5.18.0-win64/bin/luanti.exe'
 $explicitClient = [bool]$LuantiExe
@@ -113,24 +116,12 @@ if ($JavaUi -or (!$explicitClient -and @($candidates)[0] -eq $nativeClient)) {
 }
 
 $loadingPack = Join-Path $game 'menu/loading'
-$textureSetting = Select-String -LiteralPath $configPath -Pattern '^\s*texture_path\s*=' | Select-Object -Last 1
-$separator = [IO.Path]::PathSeparator
-$packs = @()
-if ($textureSetting) {
-    $packPaths = ($textureSetting.Line -split '=', 2)[1].Trim()
-    $packs = @($packPaths.Split($separator, [StringSplitOptions]::RemoveEmptyEntries) |
-        Where-Object { $_ -ne $loadingPack })
-}
-if (!$packs -and $TexturePack -and (Test-Path -LiteralPath $TexturePack -PathType Container)) {
-    $packs = @((Resolve-Path -LiteralPath $TexturePack).Path)
-}
-$newTextureSetting = 'texture_path = ' + (($packs + $loadingPack) -join $separator)
-if (!$textureSetting) {
-    Add-ConfigLines @($newTextureSetting)
-} elseif ($textureSetting.Line -ne $newTextureSetting) {
-    $lines = @(Get-Content -LiteralPath $configPath)
-    $lines[$textureSetting.LineNumber - 1] = $newTextureSetting
-    Set-ConfigLines $lines
+$texturePattern = '^\s*texture_path\s*='
+$lines = @(Get-Content -LiteralPath $configPath)
+$existingTextures = @($lines -match $texturePattern)
+$javaTextureSetting = 'texture_path = ' + (($javaPack, $loadingPack) -join [IO.Path]::PathSeparator)
+if ($existingTextures.Count -ne 1 -or $existingTextures[0] -cne $javaTextureSetting) {
+    Set-ConfigLines (@($lines -notmatch $texturePattern) + $javaTextureSetting)
 }
 
 if ($TitleScreen -or -not $PrepareOnly) {

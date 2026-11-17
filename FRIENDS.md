@@ -230,8 +230,8 @@ Use the client JAR from your own Minecraft Java installation. This example uses
 .\tools\Import-JavaTextures.ps1 -ClientJar "$env:APPDATA\.minecraft\versions\26.3\26.3.jar"
 ```
 
-The Windows launcher automatically picks up the imported 26.3 pack unless the
-profile already selects another pack. If you launch directly from Luanti, copy
+The Windows launcher requires the imported Java 26.3 pack and applies it on
+every launch, including with existing configs. If you launch directly from Luanti, copy
 `mineclonia-java-<version>` from `local\textures` into your Luanti `textures` folder
 and select it in the **Content** tab. Each player imports the assets on their
 own device. Add `-Force` to refresh an earlier pack.
@@ -259,10 +259,8 @@ its Animalia atlas and its egg can use the Java 26.3 art. [Luanti texture pack g
 | `Fancy` | Longer draw distance, 3D clouds and see-through leaves |
 | `Vibrant` | Dynamic sun shadows, light shafts, gentle bloom and simulated sky reflections on water |
 
-Each profile uses a separate client config in `local` and picks up the imported
-Java 26.3 pack when it first creates that file. Use `-TexturePack` to choose
-another pack for a new config. Existing config files retain your changes. To
-try the updated preset alongside an existing config, pass
+Each profile uses a separate client config in `local`. All three profiles use the
+imported Java 26.3 pack. To try the updated graphics preset alongside an existing config, pass
 `-Config .\local\vibrant-updated.conf` on launch.
 
 **Multiplayer → Direct Connect** opens **Join a Server**. Paste an address and port together
