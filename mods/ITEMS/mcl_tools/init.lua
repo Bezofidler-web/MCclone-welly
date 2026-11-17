@@ -276,10 +276,10 @@ core.register_tool("mcl_tools:shears", {
 		shearsy_cobweb = { speed = 15, level = 1, uses = 238 }
 	},
 	_on_dispense = function(stack, _, droppos, dropnode, dropdir)
-		if core.get_item_group(dropnode.name, "honey_level") == 5 then
-			core.swap_node(droppos, {name = dropnode.name:gsub("_5", ""), param2 = dropnode.param2})
-			core.add_item(vector.add(droppos, dropdir), "mcl_honey:honeycomb 3")
-			stack:add_wear_by_uses(238)
+		if core.get_item_group(dropnode.name, "honey_level") == 5
+				and core.add_item(vector.add(droppos, dropdir), "mcl_honey:honeycomb 3") then
+			mcl_redstone.swap_node(droppos, {name = dropnode.name:gsub("_5$", ""), param2 = dropnode.param2})
+			mcl_util.use_item_durability(stack, 1)
 		end
 		return stack
 	end,

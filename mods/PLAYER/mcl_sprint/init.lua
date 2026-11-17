@@ -7,57 +7,88 @@ to this software to the public domain worldwide. This software is
 distributed without any warranty.
 ]]
 
---Configuration variables, these are all explained in README.md
+local S = core.get_translator(core.get_current_modname())
 mcl_sprint = {}
 
 mcl_sprint.SPEED = 1.3
 
+local SPRINT_FACTOR = "mcl_sprint:sprint"
+local PARTICLE_INTERVAL = 0.15
+local SPRINT_WINDOW = "mcl_sprint:double_tap_window"
+local DEFAULT_WINDOW_MS = 350
+local MAX_WINDOW_MS = 500
 local players = {}
+
+local function sprint_window_seconds(value)
+	return math.min(MAX_WINDOW_MS, math.max(0, tonumber(value) or DEFAULT_WINDOW_MS)) / 1000
+end
+
+mcl_player.register_player_setting(SPRINT_WINDOW, {
+	type = "slider",
+	section = "Accessibility",
+	short_desc = S("Double-tap sprint window (ms)"),
+	long_desc = S("Time between two presses of Forward. Set to 0 to use only the sprint key."),
+	options = {{min = 0, max = MAX_WINDOW_MS, step = 50}},
+	ui_default = tostring(DEFAULT_WINDOW_MS),
+	on_change = function(player, _, value)
+		local state = players[player:get_player_name()]
+		if state then
+			state.sprint_window = sprint_window_seconds(value)
+			state.tap_remaining = 0
+		end
+	end,
+})
 
 -- Returns true if the player with the given name is sprinting, false if not.
 -- Returns nil if player does not exist.
 function mcl_sprint.is_sprinting(playername)
-	if players[playername] then
-		local player = core.get_player_by_name (playername)
-		return players[playername].sprinting
-			or mcl_serverplayer.sprinting_locally (player)
-	else
-		return nil
+	local state = players[playername]
+	if not state then return nil end
+	local player = core.get_player_by_name(playername)
+	if player and mcl_serverplayer.is_csm_capable(player) then
+		return mcl_serverplayer.sprinting_locally(player) == true
 	end
+	return state.sprinting
 end
 
 core.register_on_joinplayer(function(player)
-	local playerName = player:get_player_name()
-
-	players[playerName] = {
+	players[player:get_player_name()] = {
 		sprinting = false,
-		timeOut = 0,
-		shouldSprint = false,
-		lastPos = player:get_pos(),
-		sprintDistance = 0,
-		fov = 1.0,
+		last_pos = player:get_pos(),
+		distance = 0,
+		forward_held = false,
+		tap_remaining = 0,
+		sprint_window = sprint_window_seconds(mcl_player.get_player_setting(player, SPRINT_WINDOW)),
 	}
+	-- Old saves can retain these factors after disconnecting while sprinting.
+	for _, attribute in ipairs({"speed", "fov"}) do
+		if playerphysics.get_physics_factor(player, attribute, SPRINT_FACTOR) then
+			playerphysics.remove_physics_factor(player, attribute, SPRINT_FACTOR)
+		end
+	end
 end)
 core.register_on_leaveplayer(function(player)
-	local playerName = player:get_player_name()
-	players[playerName] = nil
+	players[player:get_player_name()] = nil
 end)
 
-local function setSprinting(playerName, sprinting) --Sets the state of a player (0=stopped/moving, 1=sprinting)
-	if not sprinting and not mcl_sprint.is_sprinting(playerName) then return end
-	local player = core.get_player_by_name(playerName)
-	players[playerName].sprinting = sprinting
-	if players[playerName] then
-		if sprinting then
-			playerphysics.add_physics_factor(player, "speed", "mcl_sprint:sprint", mcl_sprint.SPEED)
-			playerphysics.add_physics_factor(player, "fov", "mcl_sprint:sprint", 1.1)
-		else
-			playerphysics.remove_physics_factor(player, "speed", "mcl_sprint:sprint")
-			playerphysics.remove_physics_factor(player, "fov", "mcl_sprint:sprint")
-		end
-		return true
+local function set_sprinting(player, state, sprinting)
+	if state.sprinting == sprinting then return end
+	state.sprinting = sprinting
+	if sprinting then
+		playerphysics.add_physics_factor(player, "speed", SPRINT_FACTOR, mcl_sprint.SPEED)
+		playerphysics.add_physics_factor(player, "fov", SPRINT_FACTOR, 1.1)
+	else
+		playerphysics.remove_physics_factor(player, "speed", SPRINT_FACTOR)
+		playerphysics.remove_physics_factor(player, "fov", SPRINT_FACTOR)
 	end
-	return false
+end
+
+-- Remove the stock-client sprint factors before custom movement takes over.
+function mcl_sprint.stop_sprinting(player)
+	local state = players[player:get_player_name()]
+	if not state then return end
+	state.tap_remaining = 0
+	set_sprinting(player, state, false)
 end
 
 -- Given the param2 and paramtype2 of a node, returns the tile that is facing upwards
@@ -126,54 +157,103 @@ function mcl_sprint.spawn_particles (player, self_pos)
 	end
 end
 
-core.register_globalstep(function()
-	--Get the gametime
-	local gameTime = core.get_gametime()
+local function track_sprint_distance(player, name, state, pos, dtime, emit_particles)
+	local dx, dz = pos.x - state.last_pos.x, pos.z - state.last_pos.z
+	local distance = math.sqrt(dx * dx + dz * dz)
+	if distance == 0 then return end
 
-	--Loop through all connected players
-	for playerName, playerInfo in pairs(players) do
-		local player = core.get_player_by_name(playerName)
-		if player and not mcl_serverplayer.is_csm_capable (player) then
-			local ctrl = player:get_player_control()
-			--Check if the player should be sprinting
-			if ctrl.aux1 and ctrl.up and not ctrl.sneak then
-				players[playerName]["shouldSprint"] = true
-			else
-				players[playerName]["shouldSprint"] = false
+	-- Leave room for delayed position packets and faster movement effects.
+	-- Larger discontinuities come from teleports or position corrections.
+	local velocity = player:get_velocity()
+	local speed = math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+	if distance > math.max(2, speed * (dtime + 0.25)) then return end
+
+	state.distance = state.distance + distance
+	local blocks = math.floor(state.distance)
+	if blocks > 0 then
+		mcl_hunger.exhaust(name, mcl_hunger.EXHAUST_SPRINT * blocks)
+		state.distance = state.distance - blocks
+	end
+	if emit_particles then
+		mcl_sprint.spawn_particles(player, pos)
+	end
+end
+
+local function stopped_by_full_wall(player, pos, ctrl)
+	-- Stock clients resolve player collisions locally. A full cube directly
+	-- ahead of a stalled player is a reliable case to recognise on the server.
+	if ctrl.jump or ctrl.left or ctrl.right or math.abs(ctrl.movement_x or 0) > 0.05 then return false end
+	local velocity = player:get_velocity()
+	if math.abs(velocity.x) > 0.1 or math.abs(velocity.y) > 0.1 or math.abs(velocity.z) > 0.1 then
+		return false
+	end
+
+	local props = player:get_properties()
+	local box = props.collisionbox
+	local probe_height = box[2] + (props.stepheight or 0.6) + 0.05
+	if probe_height >= box[5] then return false end
+	local feet = core.get_node_or_nil(vector.offset(pos, 0, box[2] + 0.1, 0))
+	if not feet or core.get_item_group(feet.name, "liquid") > 0 then return false end
+
+	local dir = core.yaw_to_dir(player:get_look_horizontal())
+	local rx = (dir.x < 0 and -box[1] or box[4]) / math.max(math.abs(dir.x), 0.001)
+	local rz = (dir.z < 0 and -box[3] or box[6]) / math.max(math.abs(dir.z), 0.001)
+	local reach = math.min(rx, rz) + 0.04
+	local point = vector.round(vector.offset(pos, dir.x * reach, probe_height, dir.z * reach))
+	local node = core.get_node_or_nil(point)
+	local def = node and core.registered_nodes[node.name]
+	if not def or not def.walkable then return false end
+	local shapes = core.get_node_boxes("collision_box", point, node)
+	local cube = shapes[1]
+	return #shapes == 1 and cube[1] == -0.5 and cube[2] == -0.5 and cube[3] == -0.5
+		and cube[4] == 0.5 and cube[5] == 0.5 and cube[6] == 0.5
+end
+
+local function wants_to_sprint(player, state, pos, dtime)
+	local ctrl = player:get_player_control()
+	local impulse = ctrl.movement_y
+	if impulse == nil then
+		impulse = (ctrl.up and 1 or 0) - (ctrl.down and 1 or 0)
+	end
+	-- A pure sideways input can have a tiny forward component from rounding.
+	local forward = impulse > 0.001
+	local pressed_forward = forward and not state.forward_held
+	state.forward_held = forward
+	state.tap_remaining = math.max(0, state.tap_remaining - dtime)
+
+	if ctrl.sneak or ctrl.down or impulse < -0.001 or player:get_hp() <= 0
+		or player:get_attach() or (mcl_hunger.active and mcl_hunger.get_hunger(player) <= 6)
+		or player:get_meta():get_string("mcl_beds:sleeping") == "true" then
+		state.tap_remaining = 0
+		return false
+	end
+	if not forward then return false end
+	if state.sprinting or ctrl.aux1 or (pressed_forward and state.tap_remaining > 1e-6) then
+		state.tap_remaining = 0
+		return not stopped_by_full_wall(player, pos, ctrl)
+	end
+	if pressed_forward then
+		state.tap_remaining = state.sprint_window
+	end
+	return false
+end
+
+local particle_time = 0
+core.register_globalstep(function(dtime)
+	particle_time = particle_time + dtime
+	local emit_particles = particle_time >= PARTICLE_INTERVAL
+	if emit_particles then particle_time = 0 end
+
+	for name, state in pairs(players) do
+		local player = core.get_player_by_name(name)
+		if player and not mcl_serverplayer.is_csm_capable(player) then
+			local pos = player:get_pos()
+			local sprinting = wants_to_sprint(player, state, pos, dtime)
+			if sprinting and state.sprinting then
+				track_sprint_distance(player, name, state, pos, dtime, emit_particles)
 			end
-
-			local playerPos = player:get_pos()
-			--If the player is sprinting, create particles behind and cause exhaustion
-			if playerInfo["sprinting"] == true and not player:get_attach() and gameTime % 0.1 == 0 then
-				-- Exhaust player for sprinting
-				local lastPos = players[playerName].lastPos
-				local dist = vector.distance({x=lastPos.x, y=0, z=lastPos.z}, {x=playerPos.x, y=0, z=playerPos.z})
-				players[playerName].sprintDistance = players[playerName].sprintDistance + dist
-				if players[playerName].sprintDistance >= 1 then
-					local superficial = math.floor(players[playerName].sprintDistance)
-					mcl_hunger.exhaust(playerName, mcl_hunger.EXHAUST_SPRINT * superficial)
-					players[playerName].sprintDistance = players[playerName].sprintDistance - superficial
-				end
-
-				mcl_sprint.spawn_particles (player, playerPos)
-			end
-
-			--Adjust player states
-			players[playerName].lastPos = playerPos
-			if players[playerName]["shouldSprint"] == true then --Stopped
-				local sprinting
-				-- Prevent sprinting if hungry or sleeping
-				if (mcl_hunger.active and mcl_hunger.get_hunger(player) <= 6)
-				or (player:get_meta():get_string("mcl_beds:sleeping") == "true") then
-					sprinting = false
-				else
-					sprinting = true
-				end
-				setSprinting(playerName, sprinting)
-			elseif players[playerName]["shouldSprint"] == false then
-				setSprinting(playerName, false)
-			end
-
+			set_sprinting(player, state, sprinting)
+			state.last_pos = pos
 		end
 	end
 end)

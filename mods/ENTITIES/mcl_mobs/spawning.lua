@@ -604,9 +604,10 @@ local function get_nearest_player (pos, list)
 	return player, pos_nearest
 end
 
-local function get_weighted_value (mob_types)
+local function get_weighted_value (mob_types, rng)
 	if total_weight[mob_types] > 0 then
-		local weight = math.random (total_weight[mob_types])
+		local total = total_weight[mob_types]
+		local weight = rng and rng:next (1, total) or math.random (total)
 		for _, spawner in ipairs (mob_types) do
 			weight = weight - spawner.weight
 			if weight <= 0 then
@@ -742,6 +743,113 @@ local function spawn_a_pack (pos, players, category, scratch0,
 		mob_def:init_group (spawned, sdata)
 	end
 end
+
+-- Java 26.3 rolls once per horizontal chunk, continuing until the
+-- biome's creature_world_gen_spawn_probability check fails.
+local creature_worldgen_biome_chances = {
+	Mesa = 3,
+	ErodedMesa = 3,
+	WoodedMesa = 4,
+	IceSpikes = 7,
+	SnowyPlains = 7,
+}
+local creature_worldgen_chance = {}
+
+core.register_on_mods_loaded (function ()
+	for biome, chance in pairs (creature_worldgen_biome_chances) do
+		for _, name in ipairs (mcl_biome_dispatch.build_biome_list (biome)) do
+			creature_worldgen_chance[name] = chance
+		end
+	end
+end)
+
+local function generated_surface (x, z, min_y, max_y)
+	local pos = vector.new (x, max_y, z)
+	for y = max_y, min_y, -1 do
+		pos.y = y
+		local node = core.get_node (pos)
+		local def = core.registered_nodes[node.name]
+		if not def or node.name == "ignore" then
+			return nil
+		elseif (def.walkable or def.liquidtype ~= "none")
+			and (def.groups.leaves or 0) == 0 then
+			pos.y = y + 1
+			-- The Java creature heightmap ignores foliage. Allow
+			-- filtered daylight without seeding dark cave floors.
+			local light = core.get_natural_light (pos, 0.5)
+			if light and light >= 9 then
+				return pos
+			end
+			return nil
+		end
+	end
+end
+
+local function generate_creature_pack (mob_def, center, x, z, min_y, max_y, rng)
+	local size = rng:next (mob_def.pack_min, mob_def.pack_max)
+	local sdata = mob_def:prepare_to_spawn (size, center)
+	local spawned = {}
+	local px, pz = center.x, center.z
+	for _ = 1, size do
+		for _ = 1, 4 do
+			local pos = generated_surface (px, pz, min_y, max_y)
+			if pos then
+				local feet = vector.offset (pos, 0, -0.5, 0)
+				if test_spawn_position (mob_def, feet, pos, sdata, {}, "worldgen")
+					and test_spawn_clearance (mob_def, feet, sdata) then
+					local object = mob_def:spawn (feet, #spawned + 1, sdata, size)
+					if object then
+						table.insert (spawned, object)
+						break
+					end
+				end
+			end
+			px = math.max (x, math.min (x + 15, px + rng:next (0, 4) - rng:next (0, 4)))
+			pz = math.max (z, math.min (z + 15, pz + rng:next (0, 4) - rng:next (0, 4)))
+		end
+		px, pz = x + rng:next (0, 15), z + rng:next (0, 15)
+	end
+	if #spawned > 0 then
+		if mob_def.init_group then
+			mob_def:init_group (spawned, sdata)
+		end
+		if logging then
+			core.log ("action", "[mcl_mobs] Generated pack of " .. #spawned
+				.. " " .. mob_def.name .. " near " .. vector.to_string (center))
+		end
+	end
+end
+
+core.register_on_generated (function (minp, maxp, blockseed)
+	if not mcl_vars.mobs_spawn or maxp.y < mcl_vars.mg_overworld_min
+		or mcl_worlds.pos_to_dimension (maxp) ~= "overworld" then
+		return
+	end
+	local rng = PcgRandom (blockseed)
+	for x = minp.x, maxp.x, 16 do
+		for z = minp.z, maxp.z, 16 do
+			local roll = rng:next (1, 100)
+			if roll <= 10 then
+				local center = generated_surface (x + rng:next (0, 15),
+					z + rng:next (0, 15), minp.y, maxp.y)
+				if center then
+					local biome = get_biome_name_nosample (center)
+					local spawners = registered_spawners[biome]
+					local creatures = spawners and spawners.creature
+					local chance = creature_worldgen_chance[biome] or 10
+					while creatures and roll <= chance do
+						local mob = get_weighted_value (creatures, rng)
+						if not mob then
+							break
+						end
+						generate_creature_pack (mob, center, x, z, minp.y, maxp.y, rng)
+						roll = rng:next (1, 100)
+					end
+				end
+			end
+		end
+	end
+end)
 
 local function unpack3 (x)
 	return x[1], x[2], x[3]
@@ -1255,7 +1363,7 @@ core.register_globalstep (function (dtime)
 		mcl_mobs.spawn_cycle ("overworld", chunks, n_chunks, true)
 		mcl_mobs.spawn_cycle ("nether", chunks, n_chunks, true)
 		mcl_mobs.spawn_cycle ("end", chunks, n_chunks, true)
-		passive_spawn_timer = 10.0
+		passive_spawn_timer = 20.0
 	end
 end)
 

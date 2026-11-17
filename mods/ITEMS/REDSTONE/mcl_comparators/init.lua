@@ -176,7 +176,6 @@ local measure_tab = {
 	--["bees_nest"] = measure_beehive,
 	--["chiseled_bookshelf"] = measure_bookshelf,
 	--["command_block"] = measure_command_block,
-	--["crafter"] = measure_crafter,
 	--["item_frame"] = measure_item_frame,
 	--["sculc_sensor"] = measure_sculc_sensor,
 }

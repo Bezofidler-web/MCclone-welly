@@ -687,11 +687,11 @@ mcl_potions.register_effect({
 	on_end = function(object)
 		if object:is_player () then
 		object:get_meta():set_int("darkness", 0)
-		mcl_weather.skycolor.update_sky_color({object})
 		object:set_sky({fog = {
 			fog_distance = -1,
 			fog_start = -1,
 		}})
+		mcl_weather.skycolor.update_sky_color({object})
 		end
 	end,
 	particle_color = "#292721",
@@ -1683,8 +1683,7 @@ end)
 function mcl_potions._reset_haste_fatigue_item_meta(player)
 	local inv = player:get_inventory()
 	if not inv then return end
-	local lists = inv:get_lists()
-	for _, list in pairs(lists) do
+	for name, list in pairs(inv:get_lists()) do
 		for _, item in pairs(list) do
 			local meta = item:get_meta()
 			meta:set_string("mcl_potions:haste", "")
@@ -1692,8 +1691,9 @@ function mcl_potions._reset_haste_fatigue_item_meta(player)
 			meta:set_tool_capabilities()
 			mcl_enchanting.load_enchantments(item)
 		end
+		-- Update existing lists so their sizes and widths are preserved.
+		inv:set_list(name, list)
 	end
-	inv:set_lists(lists)
 end
 mcl_gamemode.register_on_gamemode_change(mcl_potions._reset_haste_fatigue_item_meta)
 

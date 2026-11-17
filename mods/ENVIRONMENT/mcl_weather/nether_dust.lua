@@ -68,7 +68,7 @@ end)
 mcl_player.register_player_setting("mcl_weather:nether_dust", {
         type = "boolean",
 	section = "Graphics",
-	short_desc = S("Enable dust particles in the nether"),
+	short_desc = S("Nether dust"),
 	ui_default = true,
 	on_change = update_player_particles,
 })

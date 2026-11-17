@@ -1,6 +1,7 @@
 local S = core.get_translator("mcl_mangrove")
 local modname = core.get_current_modname()
 local modpath = core.get_modpath(modname)
+local water_animation = core.registered_nodes["mcl_core:water_source"].tiles[1].animation
 
 mcl_trees.register_wood("mangrove",{
 	readable_name="Mangrove",
@@ -284,13 +285,13 @@ local wlroots = {
 		S("These cannot be crafted yet only occure when get in contact of water."),
 	_doc_items_hidden = false,
 	tiles = {
-		{name="default_water_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0}}
+		{name="default_water_source_animated.png", animation=water_animation}
 	},
 	special_tiles = {
 		-- New-style water source material (mostly unused)
 		{
 			name="default_water_source_animated.png",
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0},
+			animation=water_animation,
 			backface_culling = false,
 		}
 	},
@@ -346,7 +347,7 @@ local wlroots = {
 local rwlroots = table.merge(wlroots, {
 	description = S("River water logged mangrove roots"),
 	tiles = {
-		{name="default_river_water_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0}}
+		{name="default_river_water_source_animated.png", animation=water_animation}
 	},
 	after_dig_node = function(pos)
 		local node = core.get_node(pos)

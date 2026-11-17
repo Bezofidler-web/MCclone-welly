@@ -10,85 +10,75 @@ local LIGHT_ACTIVE_FURNACE = 13
 -- Formspecs
 --
 
-local function get_active_formspec(fuel_percent, item_percent, name)
+local furnace_slots = mcl_formspec.get_itemslot_bg_v4
+local furnace_layout = table.concat({
+	"formspec_version[7]size[11,10.375]",
+	"bgcolor[;true;#00000099]",
+	"label[0.4375,4.8;" .. F(C(mcl_formspec.label_color, S("Inventory"))) .. "]",
+	mcl_formspec.workstation_inventory,
+
+	furnace_slots(3.5, 1.0625, 1, 1, 1 / 16),
+	"list[context;src;3.5,1.0625;1,1;]",
+	furnace_slots(3.5, 3.3125, 1, 1, 1 / 16),
+	"list[context;fuel;3.5,3.3125;1,1;]",
+	furnace_slots(7.25, 2.1875, 1, 1, 5 / 16),
+	"list[context;dst;7.25,2.1875;1,1;]",
+
+	"style[craftguide;bgimg=mcl_inventory_button9.png^[multiply:#ADC994]",
+	"style[craftguide:hovered,craftguide:focused;bgimg=mcl_inventory_button9.png^[multiply:#D0E8B4]",
+	"image_button[1.25,2.125;1.15,1.1;craftguide_book.png;craftguide;]",
+	"tooltip[craftguide;" .. F(S("Recipe book")) .. "]",
+
+	"listring[context;dst]",
+	"listring[current_player;main]",
+	"listring[context;sorter]",
+	"listring[current_player;main]",
+	"listring[context;src]",
+	"listring[current_player;main]",
+	"listring[context;fuel]",
+	"listring[current_player;main]",
+})
+
+local function get_default_formspec(name, fuel_percent, item_percent)
+	local fuel_remaining = fuel_percent and (100 - fuel_percent) or 0
+	local fire = "default_furnace_fire_bg.png"
+	if fuel_remaining > 0 then
+		fire = fire .. "^[lowpart:" .. fuel_remaining .. ":default_furnace_fire_fg.png"
+	end
+
+	local arrow = "gui_furnace_arrow_bg.png"
+	if item_percent and item_percent > 0 then
+		arrow = arrow .. "^[lowpart:" .. item_percent .. ":gui_furnace_arrow_fg.png"
+	end
+
 	return table.concat({
-		"formspec_version[4]",
-		"size[11.75,10.425]",
-		"label[0.375,0.375;" .. F(C(mcl_formspec.label_color, name)) .. "]",
-		mcl_formspec.get_itemslot_bg_v4(3.5, 0.75, 1, 1),
-		"list[context;src;3.5,0.75;1,1;]",
-
-		"image[3.5,2;1,1;default_furnace_fire_bg.png^[lowpart:" ..
-		(100 - fuel_percent) .. ":default_furnace_fire_fg.png]",
-
-		mcl_formspec.get_itemslot_bg_v4(3.5, 3.25, 1, 1),
-		"list[context;fuel;3.5,3.25;1,1;]",
-
-		"image[5.25,2;1.5,1;gui_furnace_arrow_bg.png^[lowpart:" ..
-		(item_percent) .. ":gui_furnace_arrow_fg.png^[transformR270]",
-		mcl_formspec.get_itemslot_bg_v4(7.875, 2, 1, 1, 0.2),
-		"list[context;dst;7.875,2;1,1;]",
-
-		"label[0.375,4.7;" .. F(C(mcl_formspec.label_color, S("Inventory"))) .. "]",
-		mcl_formspec.get_itemslot_bg_v4(0.375, 5.1, 9, 3),
-		"list[current_player;main;0.375,5.1;9,3;9]",
-
-		mcl_formspec.get_itemslot_bg_v4(0.375, 9.05, 9, 1),
-		"list[current_player;main;0.375,9.05;9,1;]",
-
-		"image_button[7.85,0.6;1,1;craftguide_book.png;craftguide;]"..
-		"tooltip[craftguide;"..core.formspec_escape(S("Recipe book")).."]"..
-
-		"listring[context;dst]",
-		"listring[current_player;main]",
-		"listring[context;sorter]",
-		"listring[current_player;main]",
-		"listring[context;src]",
-		"listring[current_player;main]",
-		"listring[context;fuel]",
-		"listring[current_player;main]",
+		furnace_layout,
+		"label[0.4375,0.6;" .. F(C(mcl_formspec.label_color, name)) .. "]",
+		"image[3.5625,2.25;0.875,0.875;" .. fire .. "]",
+		"tooltip[3.5,2.25;1,0.875;" .. F(S("@1% fuel remaining", fuel_remaining)) .. "]",
+		-- The arrow sprites point up, so crop from the bottom before rotating right.
+		"image[4.9375,2.125;1.5,1;" .. arrow .. "^[transformR270]",
+		"tooltip[4.9375,2.125;1.5,1;" .. F(S("Progress @1%", item_percent or 0)) .. "]",
 	})
 end
 
-local function get_inactive_formspec(name)
-	return table.concat({
-		"formspec_version[4]",
-		"size[11.75,10.425]",
-		"label[0.375,0.375;" .. F(C(mcl_formspec.label_color, name)) .. "]",
-		mcl_formspec.get_itemslot_bg_v4(3.5, 0.75, 1, 1),
-		"list[context;src;3.5,0.75;1,1;]",
-
-		"image[3.5,2;1,1;default_furnace_fire_bg.png]",
-
-		mcl_formspec.get_itemslot_bg_v4(3.5, 3.25, 1, 1),
-		"list[context;fuel;3.5,3.25;1,1;]",
-
-		"image[5.25,2;1.5,1;gui_furnace_arrow_bg.png^[transformR270]",
-
-		mcl_formspec.get_itemslot_bg_v4(7.875, 2, 1, 1, 0.2),
-		"list[context;dst;7.875,2;1,1;]",
-
-		"label[0.375,4.7;" .. F(C(mcl_formspec.label_color, S("Inventory"))) .. "]",
-		mcl_formspec.get_itemslot_bg_v4(0.375, 5.1, 9, 3),
-		"list[current_player;main;0.375,5.1;9,3;9]",
-
-		mcl_formspec.get_itemslot_bg_v4(0.375, 9.05, 9, 1),
-		"list[current_player;main;0.375,9.05;9,1;]",
-
-		"image_button[7.85,0.6;1,1;craftguide_book.png;craftguide;]"..
-		"tooltip[craftguide;"..core.formspec_escape(S("Recipe book")).."]"..
-
-		"listring[context;dst]",
-		"listring[current_player;main]",
-		"listring[context;sorter]",
-		"listring[current_player;main]",
-		"listring[context;src]",
-		"listring[current_player;main]",
-		"listring[context;fuel]",
-		"listring[current_player;main]",
-	})
+local function furnace_formspec(def, fuel_percent, item_percent)
+	local name = def._tt_original_description or def.description or S("Furnace")
+	if fuel_percent then
+		if def._mcl_furnaces_get_active_formspec then
+			return def._mcl_furnaces_get_active_formspec(fuel_percent, item_percent, name)
+		end
+	else
+		local inactive_formspec = def._mcl_furnaces_get_inactive_formspec or def.get_inactive_formspec
+		if inactive_formspec then return inactive_formspec(name) end
+	end
+	return get_default_formspec(name, fuel_percent, item_percent)
 end
 
+local function progress_percent(elapsed, total)
+	if total <= 0 then return 0 end
+	return math.floor(math.max(0, math.min(elapsed / total, 1)) * 100)
+end
 
 function mcl_furnaces.receive_fields(_, _, fields, sender)
 	if fields.craftguide then
@@ -421,38 +411,17 @@ function mcl_furnaces.get_timer_function(node_normal, node_active, factor, group
 		end
 
 		local def = core.registered_nodes[node_normal]
-		local name = S("Furnace")
-		if def and def.description then
-			name = def._tt_original_description or def.description
-		end
-
 		local formspec
-		if def._mcl_furnaces_get_inactive_formspec then
-			formspec = def._mcl_furnaces_get_inactive_formspec(name)
-		else
-			formspec = get_inactive_formspec(name)
-		end
-		local item_percent = 0
-		if cookable then
-			item_percent = math.floor(src_time / cooked.time * 100)
-		end
-
 		local result = false
 
 		if active then
-			local fuel_percent = 0
-			if fuel_totaltime > 0 then
-				fuel_percent = math.floor(fuel_time / fuel_totaltime * 100)
-			end
-			if def._mcl_furnaces_get_active_formspec then
-				formspec = def._mcl_furnaces_get_active_formspec(fuel_percent, item_percent, name)
-			else
-				formspec = get_active_formspec(fuel_percent, item_percent, name)
-			end
+			local item_percent = cookable and progress_percent(src_time, cooked.time) or 0
+			formspec = furnace_formspec(def, progress_percent(fuel_time, fuel_totaltime), item_percent)
 			mcl_furnaces.swap_node(pos, node_active)
 			-- make sure timer restarts automatically
 			result = true
 		else
+			formspec = furnace_formspec(def)
 			mcl_furnaces.swap_node(pos, node_normal)
 			-- stop timer on the inactive furnace
 			core.get_node_timer(pos):stop()
@@ -582,16 +551,7 @@ function mcl_furnaces.register_furnace(nodename, def)
 	core.register_node(nodename, table.merge(mcl_furnaces.tpl_furnace_node_normal,{
 		on_construct = function(pos)
 			local meta = core.get_meta(pos)
-			local name = S("Furnace")
-			local def = core.registered_nodes[nodename]
-			if def and def.description then
-				name = def._tt_original_description or def.description
-			end
-			if def.get_inactive_formspec then
-				meta:set_string("formspec", def.get_inactive_formspec(name))
-			else
-				meta:set_string("formspec", get_inactive_formspec(name))
-			end
+			meta:set_string("formspec", furnace_formspec(core.registered_nodes[nodename]))
 			local inv = meta:get_inventory()
 			inv:set_size("sorter", 1)
 			inv:set_size("src", 1)
@@ -661,15 +621,45 @@ core.register_lbm({
 
 		if core.get_item_group(node.name, "furnace_active") == 0 then --active furnaces update the formspec every second by themselves
 			local def = core.registered_nodes[node.name]
-			local name = S("Furnace")
-			if def and def.description then
-				name = def._tt_original_description or def.description
-			end
-			if def._mcl_furnaces_get_inactive_formspec then
-				m:set_string("formspec", def._mcl_furnaces_get_inactive_formspec(name))
-			else
-				m:set_string("formspec", get_inactive_formspec(name))
-			end
+			m:set_string("formspec", furnace_formspec(def))
+		end
+	end,
+})
+
+local legacy_formspec_header = "formspec_version[4]size[11.75,10.425]"
+core.register_lbm({
+	label = "Refresh legacy furnace menus",
+	name = "mcl_furnaces:update_workstation_formspec",
+	nodenames = { "group:furnace", "group:furnace_active" },
+	-- Some older mapblocks lack the timestamps used by one-time LBMs.
+	run_at_every_load = true,
+	action = function(pos, node)
+		local meta = core.get_meta(pos)
+		if meta:get_string("formspec"):sub(1, #legacy_formspec_header) ~= legacy_formspec_header then return end
+
+		local def = core.registered_nodes[node.name]
+		local active = core.get_item_group(node.name, "furnace_active") > 0
+		if active and def and def._mcl_baseitem then
+			def = core.registered_nodes[def._mcl_baseitem]
+		end
+		if not def or def._mcl_furnaces_get_active_formspec or def._mcl_furnaces_get_inactive_formspec
+			or def.get_inactive_formspec then
+			return
+		end
+
+		if active then
+			local inv = meta:get_inventory()
+			local src = inv:get_stack("src", 1)
+			local cooked = core.get_craft_result({ method = "cooking", width = 1, items = { src } })
+			local group = def._mcl_furnaces_cook_group
+			local cookable = cooked.time > 0 and (not group or core.get_item_group(src:get_name(), group) > 0)
+				and inv:room_for_item("dst", cooked.item)
+			local src_time = src:get_name() == meta:get_string("src_item") and meta:get_float("src_time") or 0
+			local fuel_percent = progress_percent(meta:get_float("fuel_time"), meta:get_float("fuel_totaltime"))
+			local item_percent = cookable and progress_percent(src_time, cooked.time) or 0
+			meta:set_string("formspec", furnace_formspec(def, fuel_percent, item_percent))
+		else
+			meta:set_string("formspec", furnace_formspec(def))
 		end
 	end,
 })

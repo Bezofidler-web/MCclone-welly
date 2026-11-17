@@ -11,6 +11,7 @@ local mod_mcl_blackstone = core.get_modpath("mcl_blackstone")
 local mod_mcl_mangrove = core.get_modpath("mcl_mangrove")
 local mod_cherry_blossom = core.get_modpath("mcl_cherry_blossom")
 local mod_pale_oak = core.get_modpath("mcl_pale_oak")
+local has_poplar = core.get_modpath("mcl_poplar") ~= nil
 
 local deco_id_chorus_plant
 
@@ -1234,6 +1235,31 @@ local function register_biomes()
 			is_forest = true,
 		},
 	})
+
+	-- Native Dappled Forest occupies a humid band beside regular Forest.
+	if has_poplar then
+		core.register_biome({
+			name = "DappledForest",
+			node_top = "mcl_core:dirt_with_grass",
+			depth_top = 1,
+			node_filler = "mcl_core:dirt",
+			depth_filler = 3,
+			node_riverbed = "mcl_core:sand",
+			depth_riverbed = 2,
+			y_min = 2,
+			y_max = mcl_vars.mg_overworld_max,
+			heat_point = 52,
+			humidity_point = 69,
+			_mcl_biome_type = "medium",
+			_mcl_palette_index = 13,
+			_mcl_skycolor = "#79A6FF",
+			_mcl_fogcolor = overworld_fogcolor,
+			_mcl_groups = {
+				is_overworld = true,
+				is_forest = true,
+			},
+		})
+	end
 
 	-- Flower Forest
 	core.register_biome({
@@ -5142,6 +5168,41 @@ local function register_decorations()
 		rotation = "random",
 		spawn_by = "group:flower",
 	})
+
+	if has_poplar then
+		local trees = mcl_trees.woods.poplar.tree_schems
+		for i, tree in ipairs(trees) do
+			core.register_decoration({
+				name = "mcl_biomes:dappled_poplar_" .. i,
+				deco_type = "schematic",
+				place_on = {"mcl_core:dirt_with_grass"},
+				biomes = {"DappledForest"},
+				sidelen = 16,
+				fill_ratio = 6 / (256 * #trees),
+				y_min = 2,
+				y_max = mcl_vars.mg_overworld_max,
+				schematic = tree.file,
+				flags = "place_center_x, place_center_z",
+				rotation = "random",
+			})
+		end
+		for _, decoration in ipairs({
+			{ name = "mcl_poplar:red_shrub", density = 0.035 },
+			{ name = "mcl_flowers:leaf_litter_1", density = 0.055, rotation = 3 },
+		}) do
+			core.register_decoration({
+				deco_type = "simple",
+				place_on = {"mcl_core:dirt_with_grass"},
+				biomes = {"DappledForest"},
+				sidelen = 16,
+				fill_ratio = decoration.density,
+				y_min = 2,
+				y_max = mcl_vars.mg_overworld_max,
+				decoration = decoration.name,
+				param2_max = decoration.rotation,
+			})
+		end
+	end
 
 	-- Dark Oak
 	core.register_decoration({

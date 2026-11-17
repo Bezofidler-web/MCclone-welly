@@ -7,8 +7,18 @@ local max_title_length = 64
 
 local bookshelf_inv = core.settings:get_bool("mcl_bookshelf_inventories", true)
 
-local header = "no_prepend[]" .. mcl_vars.gui_nonbg .. mcl_vars.gui_bg_color ..
-		"style_type[button;border=false;bgimg=mcl_books_button9.png;bgimg_pressed=mcl_books_button9_pressed.png;bgimg_middle=2,2]"
+local book_frame = table.concat({
+	"formspec_version[8]size[10,10.87]position[0.5,0.015]anchor[0.5,0]",
+	"no_prepend[]bgcolor[;true;#00000066]",
+	"style_type[button;border=false;bgimg=mcl_options_button.png;bgimg_middle=3;textcolor=#FFFFFF]",
+	"style_type[button:hovered,button:focused;bgimg=mcl_options_button_highlighted.png]",
+	"style_type[textarea,field;border=false;textcolor=#16110A]",
+	"style_type[label;textcolor=#16110A]",
+	"image[0.2,0.08;9.6,9.6;" .. F("[combine:192x192:0,0=mcl_books_gui_book.png") .. "]",
+})
+
+local book_page = book_frame .. "style_type[label;halign=right;valign=center]"
+	.. "label[1.88,0.59;5.88,0.68;" .. F(S("Page @1 of @2", 1, 1)) .. "]"
 
 -- Book
 core.register_craftitem("mcl_books:book", {
@@ -66,12 +76,11 @@ local function write(itemstack, user, pointed_thing)
 	if rc then return rc end
 
 	local text = itemstack:get_meta():get_string("text")
-	local formspec = "size[8,9]" ..
-		header ..
-		"background[-0.5,-0.5;9,10;mcl_books_book_bg.png]" ..
-		"textarea[0.75,0.1;7.25,9;text;;" .. F(text) .. "]" ..
-		"button[0.75,7.95;3,1;sign;" .. F(S("Sign")) .. "]" ..
-		"button_exit[4.25,7.95;3,1;ok;" .. F(S("Done")) .. "]"
+	local formspec = book_page ..
+		"set_focus[text;true]" ..
+		"textarea[1.88,1.41;5.88,7.11;text;;" .. F(text) .. "]" ..
+		"button[0,9.82;4.9,1;sign;" .. F(S("Sign")) .. "]" ..
+		"button_exit[5.1,9.82;4.9,1;ok;" .. F(S("Done")) .. "]"
 	core.show_formspec(user:get_player_name(), "mcl_books:writable_book", formspec)
 end
 
@@ -80,11 +89,9 @@ local function read(itemstack, user, pointed_thing)
 	if rc then return rc end
 
 	local text = itemstack:get_meta():get_string("text")
-	local formspec = "size[8,9]" ..
-		header ..
-		"background[-0.5,-0.5;9,10;mcl_books_book_bg.png]" ..
-		"textarea[0.75,0.1;7.25,9;;" .. F(text) .. ";]" ..
-		"button_exit[2.25,7.95;3,1;ok;" .. F(S("Done")) .. "]"
+	local formspec = book_page ..
+		"textarea[1.88,1.41;5.88,7.11;;;" .. F(text) .. "]" ..
+		"button_exit[0,9.82;10,1;ok;" .. F(S("Done")) .. "]"
 	core.show_formspec(user:get_player_name(), "mcl_books:written_book", formspec)
 end
 
@@ -117,24 +124,27 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 				local overlength = string.len(fields.text) - max_text_length
 				local ov_warning = ""
 				if overlength > 0 then
-					ov_warning = "label[0.75, 2.5;".. F(C(mcl_colors.RED, S("Text is @1 characters too long for one book.\nIt will be capped at @2 characters.", overlength, max_text_length))).."]"
+					ov_warning = "textarea[1.88,4.5;5.88,2.6;;;" .. F(C("#8B2323",
+						S("Text is @1 characters too long for one book.\nIt will be capped at @2 characters.",
+							overlength, max_text_length))) .. "]"
 				end
 				meta:set_string("text", text)
 				player:set_wielded_item(stack)
 
 				local name = player:get_player_name()
-				local formspec = "size[8,9]" ..
-					header ..
-					"background[-0.5,-0.5;9,10;mcl_books_book_bg.png]" ..
-					"field[0.75,1;7.25,1;title;" ..
-					F(C("#000000", S("Enter book title:"))) .. ";]" ..
-					"label[0.75,1.5;" ..
-					F(C("#404040", S("by @1", name))) .. "]" ..
-					ov_warning..
-					"button_exit[0.75,7.95;3,1;sign;" .. F(S("Sign and Close")) .. "]" ..
-					"tooltip[sign;" ..
-					F(S("Note: The book will no longer be editable after signing")) .. "]" ..
-					"button[4.25,7.95;3,1;cancel;" .. F(S("Cancel")) .. "]"
+				local formspec = table.concat({
+					book_frame,
+					"style_type[textarea,field,label;halign=center]",
+					"label[1.88,1.24;5.88,0.65;", F(S("Enter book title:")), "]",
+					"set_focus[title;true]",
+					"field[1.88,1.95;5.88,0.6;title;;]",
+					"field_close_on_enter[title;false]",
+					"label[1.88,2.69;5.88,0.65;", F(C("#514738", S("by @1", name))), "]",
+					"textarea[1.88,3.65;5.88,0.88;;;", F(S("Note: The book will no longer be editable after signing")), "]",
+					ov_warning,
+					"button_exit[0,9.82;4.9,1;sign;", F(S("Sign and Close")), "]",
+					"button[5.1,9.82;4.9,1;cancel;", F(S("Cancel")), "]",
+				})
 				core.show_formspec(player:get_player_name(), "mcl_books:signing", formspec)
 			end
 		end

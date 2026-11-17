@@ -360,3 +360,9 @@ local sheep_spawner = table.merge (mobs_mc.animal_spawner, {
 	weight = 12,
 })
 mcl_mobs.register_spawner (sheep_spawner)
+mcl_mobs.register_spawner (table.merge (sheep_spawner, {
+	biomes = { "CherryGrove", "Meadow" },
+	weight = 2,
+	pack_min = 2,
+	pack_max = 4,
+}))

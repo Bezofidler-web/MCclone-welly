@@ -6,6 +6,11 @@ local S = core.get_translator(core.get_current_modname())
 local WATER_VISC = 1
 local LAVA_VISC = 7
 local LIGHT_LAVA = core.LIGHT_MAX
+-- Cycle lengths in seconds from the Java 26.3 animation metadata.
+local WATER_FLOW_DURATION = 1.6
+local WATER_STILL_DURATION = 3.2
+local LAVA_FLOW_DURATION = 2.4
+local LAVA_STILL_DURATION = 3.8
 
 core.register_node("mcl_core:water_flowing", {
 	description = S("Flowing Water"),
@@ -17,12 +22,12 @@ core.register_node("mcl_core:water_flowing", {
 		{
 			name = "default_water_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=4.0}
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=WATER_FLOW_DURATION}
 		},
 		{
 			name = "default_water_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=4.0}
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=WATER_FLOW_DURATION}
 		},
 	},
 	sounds = mcl_sounds.node_sound_water_defaults(),
@@ -42,7 +47,7 @@ core.register_node("mcl_core:water_flowing", {
 	liquid_viscosity = WATER_VISC,
 	liquid_range = 7,
 	waving = 3,
-	post_effect_color = {a=60, r=0x03, g=0x3C, b=0x5C},
+	post_effect_color = {a=24, r=0x03, g=0x3C, b=0x5C},
 	groups = { liquid_flowing=1, water=3, liquid=3, puts_out_fire=1, not_in_creative_inventory=1, freezes=1, melt_around=1, dig_by_piston=1, unsticky = 1},
 	_pathfinding_class = "WATER",
 	_on_bottle_place = mcl_core.get_bottle_place_on_water("mcl_potions:water"),
@@ -64,13 +69,13 @@ S("• When water is directly below lava, the water turns into stone."),
 	drawtype = "liquid",
 	waving = 3,
 	tiles = {
-		{name="default_water_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0}}
+		{name="default_water_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=WATER_STILL_DURATION}}
 	},
 	special_tiles = {
 		-- New-style water source material (mostly unused)
 		{
 			name = "default_water_source_animated.png",
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0},
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=WATER_STILL_DURATION},
 			backface_culling = false,
 		}
 	},
@@ -89,7 +94,7 @@ S("• When water is directly below lava, the water turns into stone."),
 	liquid_alternative_source = "mcl_core:water_source",
 	liquid_viscosity = WATER_VISC,
 	liquid_range = 7,
-	post_effect_color = {a=60, r=0x03, g=0x3C, b=0x5C},
+	post_effect_color = {a=24, r=0x03, g=0x3C, b=0x5C},
 	groups = { liquid_source=1, water=3, liquid=3, puts_out_fire=1, freezes=1, not_in_creative_inventory=1, dig_by_piston=1, unsticky = 1},
 	_pathfinding_class = "WATER",
 	_on_bottle_place = mcl_core.get_bottle_place_on_water("mcl_potions:water"),
@@ -109,12 +114,12 @@ core.register_node("mcl_core:lava_flowing", {
 		{
 			name = "default_lava_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=6.6}
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=LAVA_FLOW_DURATION}
 		},
 		{
 			name = "default_lava_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=6.6}
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=LAVA_FLOW_DURATION}
 		},
 	},
 	paramtype = "light",
@@ -158,13 +163,13 @@ S("• When flowing water touches flowing lava either from above or horizontally
 S("• When lava is directly above water, the water turns into stone."),
 	drawtype = "liquid",
 	tiles = {
-		{name="default_lava_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=3.0}}
+		{name="default_lava_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=LAVA_STILL_DURATION}}
 	},
 	special_tiles = {
 		-- New-style lava source material (mostly unused)
 		{
 			name="default_lava_source_animated.png",
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=3.0},
+			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=LAVA_STILL_DURATION},
 			backface_culling = false,
 		}
 	},

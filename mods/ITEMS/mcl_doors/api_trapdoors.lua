@@ -26,42 +26,34 @@ local function	on_rotate(pos, node, _, mode, _)
 	end
 end
 
-local function close(pos, sound_close)
-	local node = core.get_node(pos)
-	local defs = core.registered_nodes[node.name]
-	if not defs then return end
-	local closed = defs._mcl_trapdoor_closed_name
-	if not closed then return end
-	core.sound_play(sound_close, {pos = pos, gain = 0.3, max_hear_distance = 16}, true)
-	core.set_node(pos, {name = closed, param1 = node.param1, param2 = node.param2})
-	mcl_redstone._notify_observer_neighbours(pos)
-end
-
-local function open(pos, sound_open)
-	local node = core.get_node(pos)
-	local defs = core.registered_nodes[node.name]
-	if not defs then return end
-	local open = defs._mcl_trapdoor_open_name
-	if not open then return end
-	core.sound_play(sound_open, {pos = pos, gain = 0.3, max_hear_distance = 16}, true)
-	core.set_node(pos, {name = open, param1 = node.param1, param2 = node.param2})
-	mcl_redstone._notify_observer_neighbours(pos)
-end
-
 function mcl_doors:register_trapdoor(name, def)
 	local groups = table.copy(def.groups)
 	if groups == nil then groups = {} end
 
-	if not def.sound_open then def.sound_open = "doors_door_open" end
-	if not def.sound_close then def.sound_close = "doors_door_close" end
+	local sound_open_family = def._java_sound_family or (not def.sound_open and "wooden_trapdoor")
+	local sound_close_family = def._java_sound_family or (not def.sound_close and "wooden_trapdoor")
 
-	local function punch(pos)
-		local me = core.get_node(pos)
-		if core.get_item_group(me.name, "trapdoor") == 2 then
-			close(pos, def.sound_close)
-		else
-			open(pos, def.sound_open)
+	local function set_open(pos, node, opening)
+		local node_def = core.registered_nodes[node.name]
+		local next_node = opening and node_def._mcl_trapdoor_open_name or nil
+		local family = sound_open_family
+		local sound = def.sound_open or "doors_door_open"
+		if not opening then
+			next_node = node_def._mcl_trapdoor_closed_name
+			family = sound_close_family
+			sound = def.sound_close or "doors_door_close"
 		end
+		if not next_node then return end
+
+		node.name = next_node
+		core.swap_node(pos, node)
+		mcl_redstone._notify_observer_neighbours(pos)
+		local event = family and ("block." .. family .. (opening and ".open" or ".close")) or nil
+		mcl_sounds.play_door_event(pos, event, sound, 0.3)
+	end
+
+	local function toggle(pos, node)
+		set_open(pos, node, core.get_item_group(node.name, "trapdoor") == 1)
 	end
 
 	local function on_redstone_update(pos)
@@ -69,12 +61,8 @@ function mcl_doors:register_trapdoor(name, def)
 		local previous_power = meta:get_int("redstone_power")
 		local power = mcl_redstone.get_power(pos)
 
-		if power ~= previous_power then
-			if power ~= 0 then
-				open(pos, def.sound_open)
-			else
-				close(pos, def.sound_close)
-			end
+		if (power ~= 0) ~= (previous_power ~= 0) then
+			set_open(pos, core.get_node(pos), power ~= 0)
 		end
 
 		meta:set_int("redstone_power", power)
@@ -82,7 +70,7 @@ function mcl_doors:register_trapdoor(name, def)
 
 	local on_rightclick
 	if not def.only_redstone_can_open then
-		on_rightclick = function(pos, _, _) punch(pos) end
+		on_rightclick = toggle
 	end
 
 	-- Default help texts
@@ -128,7 +116,7 @@ function mcl_doors:register_trapdoor(name, def)
 		_mcl_blast_resistance = def._mcl_blast_resistance,
 		_mcl_hardness = def._mcl_hardness,
 		_on_wind_charge_hit = function(pos)
-			if not def.only_redstone_can_open then punch(pos) end
+			if not def.only_redstone_can_open then toggle(pos, core.get_node(pos)) end
 			return true
 		end,
 		_pathfinding_class = "TRAPDOOR",

@@ -23,15 +23,25 @@ end
 mcl_formspec.itemslot_border_size = 0.05
 
 ---Get the background of inventory slots (formspec version > 1)
-function mcl_formspec.get_itemslot_bg_v4(x, y, w, h, size, texture)
+function mcl_formspec.get_itemslot_bg_v4(x, y, w, h, size, texture, spacing)
 	if not size then
 		size = mcl_formspec.itemslot_border_size
 	end
+	local step = 1 + (spacing or 0.25)
 	local out = ""
 	for i = 0, w - 1, 1 do
 		for j = 0, h - 1, 1 do
-			out = out .. get_slot(x + i + (i * 0.25), y + j + (j * 0.25), size, texture)
+			out = out .. get_slot(x + i * step, y + j * step, size, texture)
 		end
 	end
 	return out
 end
+
+-- Player inventory and hotbar in an 11 × 10.375 workstation formspec.
+mcl_formspec.workstation_inventory = table.concat({
+	"style_type[list;spacing=0.125,0.125]",
+	mcl_formspec.get_itemslot_bg_v4(0.5, 5.25, 9, 3, 1 / 16, nil, 1 / 8),
+	"list[current_player;main;0.5,5.25;9,3;9]",
+	mcl_formspec.get_itemslot_bg_v4(0.5, 8.875, 9, 1, 1 / 16, nil, 1 / 8),
+	"list[current_player;main;0.5,8.875;9,1;]",
+})

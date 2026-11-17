@@ -4,35 +4,31 @@ local C = core.colorize
 mcl_crafting_table = {}
 
 mcl_crafting_table.formspec = table.concat({
-	"formspec_version[4]",
-	"size[11.75,10.425]",
+	"formspec_version[7]",
+	"size[11,10.375]",
+	"bgcolor[;true;#00000099]",
 
-	"label[2.25,0.375;" .. F(C(mcl_formspec.label_color, S("Crafting"))) .. "]",
+	"label[1.8125,0.6;" .. F(C(mcl_formspec.label_color, S("Crafting"))) .. "]",
+	"label[0.4375,4.8;" .. F(C(mcl_formspec.label_color, S("Inventory"))) .. "]",
+	mcl_formspec.workstation_inventory,
 
-	mcl_formspec.get_itemslot_bg_v4(2.25, 0.75, 3, 3),
-	"list[current_player;craft;2.25,0.75;3,3;]",
+	mcl_formspec.get_itemslot_bg_v4(1.875, 1.0625, 3, 3, 1 / 16, nil, 1 / 8),
+	"list[current_player;craft;1.875,1.0625;3,3;]",
 
-	"image[6.125,2;1.5,1;gui_crafting_arrow.png]",
+	"image[5.625,2.125;1.5,1;gui_crafting_arrow.png]",
 
-	mcl_formspec.get_itemslot_bg_v4(8.2, 2, 1, 1, 0.2),
-	"list[current_player;craftpreview;8.2,2;1,1;]",
-
-	"label[0.375,4.7;" .. F(C(mcl_formspec.label_color, S("Inventory"))) .. "]",
-
-	mcl_formspec.get_itemslot_bg_v4(0.375, 5.1, 9, 3),
-	"list[current_player;main;0.375,5.1;9,3;9]",
-
-	mcl_formspec.get_itemslot_bg_v4(0.375, 9.05, 9, 1),
-	"list[current_player;main;0.375,9.05;9,1;]",
+	mcl_formspec.get_itemslot_bg_v4(7.75, 2.1875, 1, 1, 5 / 16),
+	"list[current_player;craftpreview;7.75,2.1875;1,1;]",
 
 	"listring[current_player;craft]",
 	"listring[current_player;main]",
 
-	--Crafting guide button
-	"image_button[0.325,1.95;1.1,1.1;craftguide_book.png;__mcl_craftguide;]",
+	"style[__mcl_craftguide;bgimg=mcl_inventory_button9.png^[multiply:#ADC994]",
+	"style[__mcl_craftguide:hovered,__mcl_craftguide:focused;bgimg=mcl_inventory_button9.png^[multiply:#D0E8B4]",
+	"image_button[0.35,2.125;1.15,1.1;craftguide_book.png;__mcl_craftguide;]",
 	"tooltip[__mcl_craftguide;" .. F(S("Recipe book")) .. "]",
 
-	"image_button[6.025,3.175;1,1;mcl_crafting_table_inv_fill.png;__mcl_crafting_fillgrid;]",
+	"image_button[9.35,2.2375;0.9,0.9;mcl_crafting_table_inv_fill.png;__mcl_crafting_fillgrid;]",
 	"tooltip[__mcl_crafting_fillgrid;" .. F(S("Fill Craft Grid")) .. "]",
 })
 

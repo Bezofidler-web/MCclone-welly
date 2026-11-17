@@ -3,6 +3,50 @@ mcl_inventory = {}
 local modname = core.get_current_modname()
 local path = core.get_modpath(modname)
 local S = core.get_translator(modname)
+local F = core.formspec_escape
+
+function mcl_inventory.navigation_bar(player, width, y, include_recipes)
+	local common = {}
+	if core.get_modpath("mcl_minimap") then
+		common[#common + 1] = { field = "__mcl_full_map", label = S("Map") }
+	end
+	if core.get_modpath("mcl_player_roster") then
+		common[#common + 1] = { field = "__mcl_online_players", label = S("Players") }
+	end
+	common[#common + 1] = { field = "__mcl_inventory_commands", label = S("Commands") }
+	common[#common + 1] = { field = "__mcl_player_settings", label = S("Options") }
+
+	local extra = {}
+	if include_recipes then
+		extra[#extra + 1] = { field = "__mcl_craftguide", label = S("Recipe Book") }
+	end
+	if mcl_friends and mcl_friends.is_host(player) then
+		extra[#extra + 1] = { field = "__mcl_friends_controls", label = S("Server Controls") }
+	end
+
+	local height = #extra > 0 and 2.16 or 1.2
+	local fs = {
+		("box[0,%g;%g,%g;#202620]"):format(y, width, height),
+		("box[0,%g;%g,0.035;#687360]"):format(y, width),
+	}
+	local function row(controls, row_y)
+		if #controls == 0 then return end
+		local button_width = (width - 0.9 - (#controls - 1) * 0.18) / #controls
+		for i, control in ipairs(controls) do
+			local field = control.field
+			local tint = field == "__mcl_friends_controls" and "^[multiply:#98C58C" or ""
+			fs[#fs + 1] = "style[" .. field .. ";border=false;bgimg=mcl_options_button.png" .. tint
+				.. ";bgimg_middle=3;textcolor=#FFFFFF]"
+			fs[#fs + 1] = "style[" .. field .. ":hovered," .. field
+				.. ":focused;bgimg=mcl_options_button_highlighted.png" .. tint .. "]"
+			fs[#fs + 1] = ("button[%g,%g;%g,0.78;%s;%s]"):format(0.45 + (i - 1) * (button_width + 0.18),
+				row_y, button_width, field, F(control.label))
+		end
+	end
+	row(common, y + 0.2)
+	row(extra, y + 1.16)
+	return table.concat(fs), height
+end
 
 dofile(path .. "/creative.lua")
 dofile(path .. "/survival.lua")
@@ -65,126 +109,108 @@ local function set_inventory(player)
 	mcl_player.set_inventory_formspec (player, formspec, 0)
 end
 
+local function plan_recipe(inv, craft, grid_width, grid_height, stride)
+	stride = stride or inv:get_width("craft")
+	if stride == 0 then stride = 3 end
+	grid_width = grid_width or stride
+	grid_height = grid_height or math.ceil(inv:get_size("craft") / stride)
+	local size = table.max_index(craft.items)
+	local width = craft.width ~= 0 and craft.width or (size <= 4 and 2 or 3)
+	if size == 0 or width > grid_width or math.ceil(size / width) > grid_height then return end
+
+	local assigned, complete, stacks = mcl_craftguide.match_recipe(inv, craft.items)
+	if not complete then return end
+	local grid = {}
+	for slot, source in pairs(assigned) do
+		local row = math.floor((slot - 1) / width)
+		grid[row * stride + (slot - 1) % width + 1] = stacks[source]:take_item()
+	end
+	return grid, stacks
+end
+
 function mcl_inventory.get_recipe_groups(player, craft, optional_width, optional_height)
-	return_fields(player, "craft")
-	local pinv = player:get_inventory()
-	local grid_width = optional_width or pinv:get_width("craft")
-	if grid_width == 0 then
-		grid_width = 3
+	local grid = plan_recipe(player:get_inventory(), craft, optional_width, optional_height, optional_width)
+	if not grid then return false end
+	local names = {}
+	for slot = 1, table.max_index(grid) do
+		names[slot] = grid[slot] and grid[slot]:get_name() or ""
 	end
-	local grid_height = optional_height or math.ceil(pinv:get_size("craft") / grid_width)
-	local craft_size = table.max_index(craft.items)
-	local craft_width = craft.width
-	if craft_width == 0 then
-		craft_width = craft_size <= 4 and 2 or 3
-	end
-
-	if craft_width > grid_width or math.ceil(craft_size / craft_width) > grid_height then
-		return false
-	end
-	local list = "_mcl_inventory_recipe_groups"
-	pinv:set_size(list, pinv:get_size("main"))
-	pinv:set_list(list, pinv:get_list("main"))
-	local r = {}
-	local all_found = true
-	local i = 0
-	for k = 1, craft_size do
-		local it = craft.items[k]
-		local ki = k+i
-		if it then
-			if it:sub(1,6) == "group:" then
-				local group = it:sub(7)
-				for index, stack in pairs(pinv:get_list(list)) do
-					local name = stack:get_name()
-					if core.get_item_group(name, group) > 0 then
-						r[ki] = name
-						stack:take_item(1)
-						pinv:set_stack(list, index, stack)
-					end
-				end
-				if not r[ki] then
-					all_found = false
-					break
-				end
-			elseif pinv:contains_item(list, ItemStack(it)) then
-				r[ki] = it
-				pinv:remove_item(list, ItemStack(it))
-			else
-				all_found = false
-				break
-			end
-		else
-			r[ki] = ""
-		end
-		-- adapt from craft width to craft grid width
-		if (k % craft_width) == 0 then
-			for _ = 1, grid_width - craft_width do
-				i = i + 1
-				r[k+i] = ""
-			end
-		end
-	end
-	pinv:set_size(list, 0)
-	if all_found then
-		return r
-	else
-		return false
-	end
+	return names
 end
 
-local function get_count_from_inv(itname, inv, list)
-	list = list or "main"
-	local c = 0
-	for _, stack in pairs(inv:get_list(list)) do
-		if stack:get_name() == itname then
-			c = c + stack:get_count()
-		end
-	end
-	return c
-end
-
-function mcl_inventory.to_craft_grid(player, craft)
-	return_fields(player, "craft")
-	local pinv = player:get_inventory()
-	if craft.type == "normal" then
-		local recipe = mcl_inventory.get_recipe_groups(player, craft)
-		if recipe then
-			for k,it in pairs(recipe) do
-				local pit = ItemStack(it)
-				if pinv:room_for_item("craft", pit) then
-					local stack = pinv:remove_item("main", pit)
-					pinv:set_stack("craft", k, stack)
+function mcl_inventory.to_craft_grid(player, craft, grid_width, grid_height)
+	if craft.type ~= "normal" then return false end
+	local inv = player:get_inventory()
+	local grid, stacks = plan_recipe(inv, craft, grid_width, grid_height)
+	if not grid then return false end
+	local main_size = inv:get_size("main")
+	local main = {}
+	for i = 1, main_size do main[i] = stacks[i] end
+	-- Rehome unused crafting items only after we know everything fits.
+	for i = main_size + 1, #stacks do
+		local leftover = stacks[i]
+		if not leftover:is_empty() then
+			local empty_slot
+			for slot, stack in ipairs(main) do
+				if stack:is_empty() then
+					empty_slot = empty_slot or slot
+				elseif stack:get_wear() == leftover:get_wear() then
+					leftover = stack:add_item(leftover)
 				end
+				if leftover:is_empty() then break end
+			end
+			if not leftover:is_empty() then
+				if not empty_slot then return false end
+				main[empty_slot] = leftover
 			end
 		end
 	end
+	inv:set_list("main", main)
+	inv:set_list("craft", grid)
+	return true
 end
 
 function mcl_inventory.fill_grid(player)
 	local inv = player:get_inventory()
-	local itcounts = {}
-	local invcounts = {}
-	for _, stack in pairs(inv:get_list("craft")) do
-		local name = stack:get_name()
-		if name ~= "" then
-			itcounts[name] = (itcounts[name] or 0) + 1
-			invcounts[name] = get_count_from_inv(name, inv)
+	local main = inv:get_list("main")
+	local grid = inv:get_list("craft")
+	local slots, sources, totals = {}, {}, {}
+	for i, stack in ipairs(main) do
+		if not stack:is_empty() then
+			local key = stack:peek_item():to_string()
+			sources[key] = sources[key] or {}
+			table.insert(sources[key], i)
+			totals[key] = (totals[key] or 0) + stack:get_count()
 		end
 	end
-	for idx, tstack in pairs(inv:get_list("craft")) do
-		local name = tstack:get_name()
-		if itcounts[name] and invcounts[name] then
-			local it = ItemStack(name)
-			it:set_count(math.min(tstack:get_stack_max() - tstack:get_count(), math.floor(invcounts[name] / (itcounts[name] or 1))))
-			tstack:add_item(inv:remove_item("main", it))
-			inv:set_stack("craft", idx, tstack)
+	for _, stack in ipairs(grid) do
+		local key = stack:peek_item():to_string()
+		slots[key] = (slots[key] or 0) + 1
+	end
+	for _, stack in ipairs(grid) do
+		local key = stack:peek_item():to_string()
+		if sources[key] then
+			local needed = math.min(stack:get_stack_max() - stack:get_count(), math.floor(totals[key] / slots[key]))
+			for _, i in ipairs(sources[key]) do
+				if needed <= 0 then break end
+				local taken = main[i]:take_item(math.min(needed, main[i]:get_count()))
+				needed = needed - taken:get_count()
+				stack:add_item(taken)
+			end
 		end
 	end
+	inv:set_list("main", main)
+	inv:set_list("craft", grid)
 end
 
 function mcl_inventory.show_inventory(player)
+	if core.is_creative_enabled(player:get_player_name()) then
+		mcl_inventory.set_creative_formspec(player)
+	end
 	core.show_formspec(player:get_player_name(), "", player:get_inventory_formspec())
 end
+
+dofile(path .. "/commands.lua")
 
 mcl_player.register_player_settings_button({
 	field = "__mcl_inventory",

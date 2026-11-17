@@ -1,40 +1,6 @@
 local S = core.get_translator(core.get_current_modname())
 local D = mcl_util.get_dynamic_translator(core.get_current_modname())
-local C = core.colorize
 local F = core.formspec_escape
-
-local section_name_color = "#FFFFFF"
-local setting_name_color = "#000000"
-
-local function __iterate(t, iterator, ...)
-	if select("#", ...) > 0 then
-		t:add(...)
-	end
-	if iterator then
-		return __iterate(t, iterator())
-	end
-end
-
-local stringbuilder_meta = {
-	add = function(t, ...)
-		for i = 1, select("#", ...) do
-			local item = select(i, ...)
-			local item_type = type(item)
-			if item_type == "table" then
-				t:add(unpack(item))
-			elseif item_type == "function" then
-				__iterate(t, item())
-			elseif item_type ~= "nil" then
-				t[#t+1] = tostring(item)
-			end
-		end
-	end,
-	get = table.concat,
-}
-
-local function new_stringbuilder()
-	return setmetatable({}, { __index = stringbuilder_meta })
-end
 
 local SETTINGS_PREFIX ="mcl_player_settings:"
 local setting_types = { boolean = true, enum = true, slider = true }
@@ -128,283 +94,330 @@ function mcl_player.set_player_setting(player, name, value)
 end
 
 mcl_player.register_player_setting("mcl_player:mobile_ui", {
-        type = "boolean",
-	section = "Graphics",
-	short_desc = S("Adapt UI for a better experience on touchscreen devices"),
+	type = "boolean",
+	section = "Accessibility",
+	short_desc = S("Touch-friendly menus"),
 	long_desc = S("May enlarge elements, add additional space, and change elements, e.g. add buttons to replace the missing enter key.\nNote that currently this is only implemented for a very limited number of formspecs."),
 	ui_default = "false",
 })
 
-local function get_sorted_setting_names()
-	local names = {}
-	for name, _ in pairs(player_settings) do
-		names[#names+1] = name
-	end
-	table.sort(names, function(a, b)
-		local defa, defb = player_settings[a], player_settings[b]
-		if defa.section == defb.section then
-			return defa.short_desc < defb.short_desc
-		else
-			return defa.section < defb.section
-		end
-	end)
-	return names
+local FORMNAME = "mcl_player:settings_formspec"
+local SECTION_FORMNAME = FORMNAME .. ":section"
+local SCROLL_FIELD = "__settings_scroll"
+local SECTION_FIELD = "__section__"
+local RESET_FIELD = "__reset__"
+
+local section_names = {
+	Graphics = S("Video Settings"),
+	HUD = S("HUD Settings"),
+	Inventory = S("Inventory Settings"),
+	Accessibility = S("Accessibility Settings"),
+}
+
+local menu_style = table.concat({
+	"no_prepend[]",
+	"bgcolor[;true;#141318D8]",
+	"style_type[button;border=false;bgimg=mcl_options_button.png;bgimg_middle=3;textcolor=#FFFFFF]",
+	"style_type[button:hovered,button:focused;bgimg=mcl_options_button_highlighted.png]",
+	"style_type[button:pressed;bgimg=mcl_options_button_highlighted.png;content_offset=0,1]",
+	"style_type[label;textcolor=#FFFFFF;halign=center;valign=center]",
+	"style_type[textarea;border=false;textcolor=#EFEFEF;halign=center;valign=center]",
+})
+
+local function menu_frame(width, height, title)
+	return {
+		("formspec_version[8]size[%g,%g]"):format(width, height),
+		menu_style,
+		("label[0,0.12;%g,0.76;%s]"):format(width, F(title)),
+	}
 end
 
-local function generate_setting_fragment(player, name, def, fs)
-	local raw_value = mcl_player.get_player_setting(player, name)
-	local value = raw_value == nil and def.ui_default or raw_value
-	local tt_ref = name
-	local b_size = fs.mobile and 0.5 or 0.25
-	local b_size_2 = b_size / 2
-	local padding = fs.mobile and 0.125 or 0
-	local y = fs.y
-	y = y + padding
+local function get_sections()
+	local sections = {}
+	local named = {}
+	for name, def in pairs(player_settings) do
+		local section = named[def.section]
+		if not section then
+			section = {
+				id = def.section,
+				label = section_names[def.section] or def._translated_section,
+				settings = {},
+			}
+			named[def.section] = section
+			sections[#sections + 1] = section
+		end
+		section.settings[#section.settings + 1] = name
+	end
+	table.sort(sections, function(a, b)
+		if a.id == "Graphics" or b.id == "Graphics" then
+			return a.id == "Graphics" and b.id ~= "Graphics"
+		end
+		return a.id < b.id
+	end)
+	return sections
+end
 
-	local playerinfo = core.get_player_information(player:get_player_name())
-	if def.min_protocol_version and def.min_protocol_version > playerinfo.protocol_version then
-		fs:add("label[1,", y, ";", F(C(setting_name_color, S('Setting "@1" is not available on your Luanti version', def.short_desc))), "]")
-		fs.y = y + padding
+local function text_area(fs, x, y, width, height, text)
+	fs[#fs + 1] = ("textarea[%g,%g;%g,%g;;;%s]"):format(x, y, width, height, F(text))
+end
+
+local function button(fs, x, y, width, height, field, text, tooltip, exit)
+	fs[#fs + 1] = ("%s[%g,%g;%g,%g;%s;%s]"):format(exit and "button_exit" or "button",
+		x, y, width, height, F(field), F(text))
+	if tooltip then
+		fs[#fs + 1] = ("tooltip[%s;%s]"):format(F(field), F(tooltip))
+	end
+end
+
+local section_pages = {}
+
+local function use_single_column(player)
+	local window = core.get_player_window_information(player:get_player_name())
+	return mcl_player.get_player_setting(player, "mcl_player:mobile_ui", false)
+		or (window and (window.touch_controls or window.size.x < window.size.y))
+end
+
+local function show_root(player, focus)
+	section_pages[player] = nil
+	local entries = {}
+	for _, section in ipairs(get_sections()) do
+		entries[#entries + 1] = { field = SECTION_FIELD .. section.id, label = S("@1…", section.label) }
+	end
+	local done_field = "__settings_close"
+	local host_entry
+	for _, def in ipairs(player_settings_buttons) do
+		if def.field == "__mcl_inventory" then
+			done_field = def.field
+		elseif not def.visible or def.visible(player) then
+			local entry = {
+				field = def.field,
+				label = def.field == "__mcl_skins" and S("Player Skin…") or def.description,
+				description = def.description,
+			}
+			if def.field == "__mcl_friends_controls" then
+				host_entry = entry
+			else
+				entries[#entries + 1] = entry
+			end
+		end
+	end
+
+	local single_column = use_single_column(player)
+	local columns = single_column and 1 or 2
+	local menu_width = single_column and 8.5 or 13
+	local first_row = host_entry and 2.48 or 1.42
+	local footer_y = first_row + math.ceil(#entries / columns) + 0.22
+	local fs = menu_frame(menu_width, footer_y + 1.2, S("Options"))
+	if host_entry then
+		button(fs, 0.5, 1.42, menu_width - 1, 0.81, host_entry.field, S("Server Controls"),
+			S("Manage players and the world"))
+	end
+	for i, entry in ipairs(entries) do
+		local x = 0.5 + ((i - 1) % columns) * 6.15
+		local y = first_row + math.floor((i - 1) / columns)
+		local width = single_column and menu_width - 1 or 5.85
+		button(fs, x, y, width, 0.81, entry.field, entry.label, entry.description)
+	end
+	local close = done_field == "__settings_close"
+	button(fs, 0.5, footer_y, menu_width - 1, 0.81, done_field, close and S("Done") or S("Back to Inventory"), nil, close)
+	focus = focus or (entries[1] and entries[1].field)
+	if focus then
+		fs[#fs + 1] = "set_focus[" .. F(focus) .. ";true]"
+	end
+	core.show_formspec(player:get_player_name(), FORMNAME, table.concat(fs))
+end
+
+local function setting_supported(def, protocol)
+	return not def.min_protocol_version or protocol >= def.min_protocol_version
+end
+
+local function get_value(player, name, def)
+	local raw_value = mcl_player.get_player_setting(player, name)
+	if raw_value == nil then return def.ui_default end
+	return raw_value
+end
+
+local function get_option_index(def, value)
+	for i, option in ipairs(def.options) do
+		if option.name == value then return i end
+	end
+end
+
+local function boolean_value(value)
+	return value == true or value == "true"
+end
+
+local function setting_input(fs, name, def, value, x, y, width)
+	local tooltip = def.long_desc or def.short_desc
+	if def.type == "boolean" then
+		local state = boolean_value(value) and S("On") or S("Off")
+		button(fs, x, y, width, 0.82, name, S("@1: @2", def.short_desc, state), tooltip)
 		return
 	end
 
-	if raw_value ~= nil then
-		fs:add(
-			"button[", 0.625 - b_size_2, ",", y - b_size_2, ";", b_size, ",", b_size, ";",
-			"__reset__", name, ";X]",
-			"tooltip[",
-			"__reset__", name, ";",
-			S("Revert to default"), "]"
-		)
-	end
-	if def.type == "boolean" then
-		fs:add(
-			"checkbox[", 1, ",", y, ";",
-			name, ";",
-			F(C(setting_name_color, def.short_desc)), ";",
-			value, "]"
-		)
-		y = y + 0.5
-	elseif def.type == "enum" then
-		-- add tooltip to area instead of dropdown to also show it on
-		-- the label and additionally prevent the tooltip obscuring the
-		-- options when using the mouse to select one
-		tt_ref = ("%f,%f;%f,%f"):format(1, y-0.1, 9.3, 0.5)
-		local selected
-		fs:add(
-			"label[1,", y, ";", F(C(setting_name_color, def.short_desc)), "]",
-			-- Ugly workaround: override any area tooltips when
-			-- mousing over the dropdown options by a hopefully
-			-- unobtrusive tooltip
-			"tooltip[", name, "; ]",
-			"dropdown[1,", y + 0.175, ";9.3,0.3;",
-			name, ";"
-		)
-
-		for _, option in ipairs(def.options) do
-			local name, desc = option.name, option.description
-			desc = desc or name
-			if name == value then
-				selected = desc .. " " .. S("(currently selected)")
-			end
-			if name == def.ui_default then
-				desc = desc .. " " .. S("(default)")
-			end
-			fs:add(F(desc), ",")
-		end
-		if not selected then
-			-- option list changed, current selected value no longer supported
-			selected = value .. " " .. S("(currently selected, but INVALID! PLEASE choose a valid setting)")
-		end
-		-- add currently selected entry a second time at the end and
-		-- select that one to allow change detection
-		fs:add(
-			F(selected), ";",
-			#def.options + 1,
-			";true]"
-		)
-		y = y + 0.85
-	elseif def.type == "slider" then
-		local sb_height = fs.mobile and 0.5 or 0.25
-		-- add tooltip to area to display it not only on the slider itself
-		tt_ref = ("%f,%f;%f,%f"):format(1, y-0.1, 9.3, 0.25 + sb_height)
-		local count = #def.options
-		local selected
-		fs:add(
-			"label[1,", y, ";", F(C(setting_name_color, def.short_desc)), "]",
-			"scroll_container[5.25,", y + 0.05 + sb_height / 2, ";5,0.3;", name, ";vertical;1]"
-		)
-
-		for i, option in ipairs(def.options) do
-			local name, desc = option.name, option.description or option.name
-			if name == value then
-				selected = i
-			end
-			if name == def.ui_default then
-				desc = desc .. " " .. S("(default)")
-			end
-			fs:add(
-				"label[0,", i + 0.1, ";", F(desc), "]"
-			)
-		end
-		if not selected then
-			count = count + 1
-			selected = count
-			fs:add(
-				"label[0,", count + 0.1, ";", F(value .. " " .. S("(invalid)")), "]"
-			)
-		end
-		fs:add(
-			"scroll_container_end[]",
-			"scrollbaroptions[thumbsize=1;arrows=show;smallstep=1;min=1;max=", count, "]",
-			"scrollbar[1,", y + 0.175, ";4,", sb_height, ";horizontal;", name, ";", selected, "]"
-		)
-		y = y + 0.6 + sb_height
-	end
-	if def.long_desc then
-		fs:add(
-			"tooltip[",
-			tt_ref, ";",
-			F(def.long_desc), "]"
-		)
+	local selected = get_option_index(def, value) or get_option_index(def, def.ui_default) or 1
+	if def.type == "enum" then
+		local option = def.options[selected]
+		local state = option and (option.description or option.name) or ""
+		button(fs, x, y, width, 0.82, name, S("@1: @2", def.short_desc, state), tooltip)
+		return
 	end
 
-	fs.y = y + padding
+	if #def.options == 0 then return end
+	text_area(fs, x, y - 0.06, width, 0.49, def.short_desc)
+	-- Scroll the value label and the native slider together. This avoids
+	-- redrawing the form while the player is dragging the slider.
+	fs[#fs + 1] = ("scroll_container[%g,%g;1.55,0.44;%s;vertical;1]"):format(
+		x + width - 1.55, y + 0.48, F(name))
+	fs[#fs + 1] = "style_type[textarea;font_size=*0.85]"
+	for i, option in ipairs(def.options) do
+		text_area(fs, 0, i, 1.55, 0.44, option.description or option.name)
+	end
+	fs[#fs + 1] = "scroll_container_end[]style_type[textarea;font_size=*1]"
+	fs[#fs + 1] = ("scrollbaroptions[min=1;max=%d;smallstep=1;largestep=1;arrows=hide;thumbsize=1]"):format(
+		#def.options)
+	fs[#fs + 1] = ("scrollbar[%g,%g;%g,0.43;horizontal;%s;%d]"):format(
+		x, y + 0.48, width - 1.6, F(name), selected)
+	fs[#fs + 1] = ("tooltip[%g,%g;%g,0.44;%s]"):format(x, y, width, F(tooltip))
 end
 
-local function generate_section_label(section, fs)
-	local y = fs.y
-	fs:add(
-		"label[0.375,", y, ";", F(C(section_name_color, section)), "]",
-		"box[0.375,", y + 0.15, ";10,0.025;#FFFFFFFF]"
-	 )
-	 fs.y = y + 0.5
+local function setting_control(fs, player, name, x, y, width, protocol)
+	local def = player_settings[name]
+	if not setting_supported(def, protocol) then
+		text_area(fs, x, y, width, 1.05, S("@1 requires a newer Luanti client", def.short_desc))
+		return
+	end
+	local has_reset = def.type == "slider" or mcl_player.get_player_setting(player, name) ~= nil
+	local input_width = has_reset and width - 1.24 or width
+	setting_input(fs, name, def, get_value(player, name, def), x, y, input_width)
+	if has_reset then
+		local reset_field = RESET_FIELD .. name
+		fs[#fs + 1] = ("style[%s;font_size=*0.83]"):format(F(reset_field))
+		button(fs, x + input_width + 0.12, y, 1.12, 0.82, reset_field, S("Reset"), S("Revert to default"))
+	end
 end
 
-local player_fs_info = {}
+local function show_section(player, section, scroll, focus)
+	local info = core.get_player_information(player:get_player_name())
+	local protocol = info and info.protocol_version or 0
+	local single_column = use_single_column(player)
+	local menu_width = single_column and 8.5 or 13
+	local content_width = menu_width - 1
+	-- Leave room for the longer HUD setting labels.
+	local columns = (single_column or section.id == "HUD") and 1 or 2
+	local width = columns == 1 and content_width or 5.85
+	local rows = math.ceil(#section.settings / columns)
+	local row_height = 1.16
+	local content_height = rows * row_height
+	local view_height = math.min(content_height, 5)
+	local scroll_max = math.ceil((content_height - view_height) * 100)
+	local hint_height = section.id == "Graphics" and 0.8 or 0
+	local content_y = 1.36
+	local footer_y = content_y + view_height + 0.32 + hint_height
+	local fs = menu_frame(menu_width, footer_y + 1.19, section.label)
 
-local function generate_settings_formspec (player)
-	local fs_info = player_fs_info[player]
-	local fs = new_stringbuilder()
-	fs.mobile = mcl_player.get_player_setting(player, "mcl_player:mobile_ui", false)
-	fs:add(
-		"formspec_version[6]",
-		"size[11.75,10.9]",
-		-- Title
-		"label[0.375,0.375;",
-		F(C(mcl_formspec.label_color, S("Player specific settings and customization"))), "]"
-	)
+	if scroll_max > 0 then
+		local thumb = math.max(1, math.floor(view_height / content_height * scroll_max))
+		fs[#fs + 1] = ("scrollbaroptions[min=0;max=%d;smallstep=42;largestep=116;thumbsize=%d;arrows=hide]"):format(
+			scroll_max, thumb)
+		fs[#fs + 1] = ("scrollbar[%g,%g;0.34,%g;vertical;%s;%d]"):format(
+			menu_width - 0.46, content_y, view_height, SCROLL_FIELD, math.max(0, math.min(scroll or 0, scroll_max)))
+		fs[#fs + 1] = ("scroll_container[0.5,%g;%g,%g;%s;vertical;0.01]"):format(
+			content_y, content_width, view_height, SCROLL_FIELD)
+	else
+		fs[#fs + 1] = ("container[0.5,%g]"):format(content_y)
+	end
+	for i, name in ipairs(section.settings) do
+		setting_control(fs, player, name, ((i - 1) % columns) * 6.15,
+			0.07 + math.floor((i - 1) / columns) * row_height, width, protocol)
+	end
+	fs[#fs + 1] = scroll_max > 0 and "scroll_container_end[]" or "container_end[]"
 
-	-- Settings buttons
-	local x = 0.5
-	for _, def in pairs(player_settings_buttons) do
-		fs:add(
-			"image_button[", x, ",0.75;1.1,1.1;", def.icon, ";", def.field, ";]",
-			"tooltip[", def.field, ";", F(def.description), "]"
-		)
-		x = x + 1.5
+	if section.id == "Graphics" then
+		fs[#fs + 1] = "style_type[textarea;font_size=*0.88;textcolor=#D7D7D7]"
+		text_area(fs, 0.5, content_y + 0.08 + view_height, content_width, hint_height,
+			S("Render distance and shaders are in Luanti's pause settings."))
+	end
+	button(fs, 0.5, footer_y, content_width, 0.81, "__settings_back", S("Back to Options"))
+	if focus then
+		fs[#fs + 1] = "set_focus[" .. F(focus) .. ";true]"
 	end
 
-	-- Generic settings area
-	x = fs.mobile and 0.625 or 0.5
-	local height = 8
-	local scroll_factor = 0.01
-	fs:add(
-		"scroll_container[", x, ",2.5;11,", height, ";_settings_scroll;vertical;", scroll_factor, "]"
-	)
-	fs.y = 0.0
-
-	local section
-	for _, name in ipairs(get_sorted_setting_names()) do
-		local def = player_settings[name]
-		if def.section ~= section then
-			fs.y = fs.y + 0.25
-			section = def.section
-			generate_section_label(def._translated_section, fs)
-		end
-
-		generate_setting_fragment(player, name, def, fs)
-	end
-
-	-- scroll factor is 0.01, height is 8
-	local width = fs.mobile and 0.5 or 0.25
-	local scroll_max = math.ceil(math.max(0, fs.y - height) / scroll_factor)
-	local thumb_size = math.floor((height / fs.y) * scroll_max)
-	local scroll = 0
-	if fs_info then
-		if fs_info.scroll_max == scroll_max then
-			scroll = fs_info.scroll
-		elseif fs_info.scroll_max then
-			scroll = math.floor(scroll_max * fs_info.scroll / fs_info.scroll_max)
-		end
-	end
-	fs:add(
-		"scroll_container_end[]",
-		"scrollbaroptions[", "smallstep=", math.floor(0.5 / scroll_factor),
-		";max=", scroll_max,";thumbsize=", thumb_size, "]",
-		"scrollbar[", x - width, ",2.5;", width, ",8;vertical;_settings_scroll;", scroll, "]"
-	)
-
-	-- remember max scroll to correctly reposition container on change
-	player_fs_info[player] = { scroll_max = scroll_max }
-
-	return fs:get()
+	section_pages[player] = section
+	core.show_formspec(player:get_player_name(), SECTION_FORMNAME, table.concat(fs))
 end
 
 function mcl_player.show_player_settings(player)
-	if not player or not player:is_player() then return end
-
-	local formspec = generate_settings_formspec(player)
-	core.show_formspec(player:get_player_name(), "mcl_player:settings_formspec", formspec)
+	if player and player:is_player() then
+		show_root(player)
+	end
 end
 
+core.register_on_leaveplayer(function(player)
+	section_pages[player] = nil
+end)
+
 core.register_on_player_receive_fields(function(player, formname, fields)
-		if fields.__mcl_player_settings then
-			mcl_player.show_player_settings(player)
-			return false
-		elseif formname == "mcl_player:settings_formspec" then
-			local refresh_fs = false
-			for name, def in pairs(player_settings) do
-				local value = fields[name]
-				if fields["__reset__" .. name] then
-					mcl_player.set_player_setting(player, name, nil)
-					refresh_fs = true
-				elseif value ~= nil then
-					-- convert from formspec representation to type
-					if def.type == "boolean" then
-						mcl_player.set_player_setting(player, name, value == "true")
-						refresh_fs = true
-					elseif def.type == "enum" then
-						local option = def.options[tonumber(value)]
-						-- ignore if it was the duplicated entry at the end
-						if option then
-							mcl_player.set_player_setting(player, name, option.name)
-							refresh_fs = true
-						end
-					elseif def.type == "slider" then
-						local event = core.explode_scrollbar_event(value)
-						if event.type == "CHG" then
-							refresh_fs = mcl_player.get_player_setting(player, name) == nil
-							local option = def.options[tonumber(event.value)]
-							if option then
-								mcl_player.set_player_setting(player, name, option.name)
-							end
-						end
-					end
-				end
+	if fields.__mcl_player_settings then
+		mcl_player.show_player_settings(player)
+		return true
+	end
+	if formname == FORMNAME then
+		for _, section in ipairs(get_sections()) do
+			if fields[SECTION_FIELD .. section.id] then
+				table.sort(section.settings, function(a, b)
+					local title_a, title_b = player_settings[a].short_desc, player_settings[b].short_desc
+					if title_a == title_b then return a < b end
+					return title_a < title_b
+				end)
+				show_section(player, section)
+				return true
 			end
-
-			if refresh_fs then
-				if fields._settings_scroll and player_fs_info[player] then
-					local event = core.explode_scrollbar_event(fields._settings_scroll)
-					player_fs_info[player].scroll = event.value
-				end
-				mcl_player.show_player_settings(player)
-				return false
-			end
-
-			-- no interesting change, let other
-			-- on_player_receive_fields handle settings button
-			-- presses
 		end
+		-- Other mods handle the registered customisation buttons.
+		return false
+	end
+
+	local section = section_pages[player]
+	if formname ~= SECTION_FORMNAME or not section then return false end
+	if fields.quit then
+		section_pages[player] = nil
+		return false
+	end
+	if fields.__settings_back then
+		show_root(player, SECTION_FIELD .. section.id)
+		return true
+	end
+
+	local info = core.get_player_information(player:get_player_name())
+	local protocol = info and info.protocol_version or 0
+	for _, name in ipairs(section.settings) do
+		local def = player_settings[name]
+		if setting_supported(def, protocol) then
+			local reset = fields[RESET_FIELD .. name]
+			local event = fields[name]
+			if reset then
+				mcl_player.set_player_setting(player, name, nil)
+			elseif event and def.type == "boolean" then
+				mcl_player.set_player_setting(player, name, not boolean_value(get_value(player, name, def)))
+			elseif event and def.type == "enum" and #def.options > 0 then
+				local i = get_option_index(def, get_value(player, name, def)) or 0
+				mcl_player.set_player_setting(player, name, def.options[i % #def.options + 1].name)
+			elseif event and def.type == "slider" then
+				local changed = core.explode_scrollbar_event(event)
+				local option = def.options[changed.value]
+				if changed.type == "CHG" and option then
+					mcl_player.set_player_setting(player, name, option.name)
+					-- The slider uses a live value label. Leave it in place.
+				end
+			end
+
+			if reset or (event and def.type ~= "slider") then
+				local scroll = core.explode_scrollbar_event(fields[SCROLL_FIELD]).value
+				show_section(player, section, scroll, name)
+				return true
+			end
+		end
+	end
+	return false
 end)

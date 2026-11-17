@@ -4,3 +4,12 @@ tools/Conversion_Table.csv -export-ignore
 tools/Import-JavaTextures.ps1 -export-ignore
 tools/Java_Texture_Overrides.csv -export-ignore
 tools/Start-FriendsServer.ps1 -export-ignore
+tools/Start-VibrantClient.ps1 -export-ignore
+tools/LanProfile.ps1 -export-ignore
+tools/Watch-LanWorlds.ps1 -export-ignore
+tools/Build-FriendsPackage.ps1 -export-ignore
+tools/Build-JavaClient.ps1 -export-ignore
+tools/Import-JavaDoorSounds.ps1 -export-ignore
+tools/luanti-*.patch -export-ignore
+tools/tests -export-ignore
+tools/tests/** -export-ignore

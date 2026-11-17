@@ -43,22 +43,47 @@ local function orientate(pos, placer, basename)
 	end
 end
 
-local function drop(pos, droppos, dropitem, inv, stack_)
-	-- Drop item normally
+local function eject(pos, droppos, item)
 	local pos_variation = 100
 	droppos = vector.offset(droppos,
 		math.random(-pos_variation, pos_variation) / 1000,
 		math.random(-pos_variation, pos_variation) / 1000,
 		math.random(-pos_variation, pos_variation) / 1000
 	)
-	local item_entity = core.add_item(droppos, dropitem)
+	local item_entity = core.add_item(droppos, item)
 	if item_entity then
 		local drop_vel = vector.subtract(droppos, pos)
 		local speed = 3
 		item_entity:set_velocity(vector.multiply(drop_vel, speed))
+		return true
+	end
+end
+
+local function drop(pos, droppos, dropitem, inv, stack_)
+	if eject(pos, droppos, dropitem) then
 		stack_.stack:take_item()
 		inv:set_stack("main", stack_.stackpos, stack_.stack)
 	end
+end
+
+local function dispense_direction(node)
+	if node.name:match("_up$") then return vector.new(0, 1, 0) end
+	if node.name:match("_down$") then return vector.new(0, -1, 0) end
+	return -core.facedir_to_dir(node.param2 % 32)
+end
+
+local function flush_remainder(pos)
+	local inv = core.get_meta(pos):get_inventory()
+	local stack = inv:get_stack("remainder", 1)
+	if stack:is_empty() then return true end
+	stack = inv:add_item("main", stack)
+	if not stack:is_empty() and not eject(pos, pos + dispense_direction(core.get_node(pos)), stack) then
+		inv:set_stack("remainder", 1, stack)
+		return false
+	end
+	inv:set_size("remainder", 0)
+	mcl_redstone.update_comparators(pos)
+	return true
 end
 
 local function activate_dropper(pos, droppos, dropdir, inv, stack_)
@@ -93,8 +118,7 @@ local function activate_dispenser(pos, droppos, dropdir, inv, stack_)
 	for obj in core.objects_inside_radius(droppos, 1) do
 		local ent = obj:get_luaentity()
 		if ent and ent._on_dispense then
-			local pos = obj:get_pos()
-			local od_ret = ent:_on_dispense(stack, pos, droppos, dropnode, dropdir)
+			local od_ret = ent:_on_dispense(stack, obj:get_pos(), droppos, dropnode, dropdir)
 			if od_ret then
 				inv:set_stack("main", stack_id, od_ret)
 				mcl_redstone.update_comparators(pos)
@@ -130,47 +154,28 @@ local function activate_dispenser(pos, droppos, dropdir, inv, stack_)
 
 		inv:set_stack("main", stack_id, stack)
 	elseif igroups.spawn_egg then
-		if not dropnodedef.walkable then
-			core.add_entity(droppos, stack:get_name())
-
+		if not dropnodedef.walkable and core.add_entity(droppos, stack:get_name()) then
 			stack:take_item()
 			inv:set_stack("main", stack_id, stack)
 		end
 	elseif dropnodedef and (not dropnodedef.walkable or stackdef._dispense_into_walkable) then
 		if stackdef._on_dispense then -- Item-specific dispension (if defined)
-			if not pos then
-				error("no pos")
-			end
-			if not droppos then
-				error("no droppos")
-			end
-			if not dropdir then
-				error("no drodir")
-			end
-			local od_ret = stackdef._on_dispense(dropitem, pos, droppos, dropnode, dropdir)
-			if od_ret then
-				local newcount = stack:get_count() - 1
-				stack:set_count(newcount)
-				inv:set_stack("main", stack_id, stack)
-				if newcount == 0 then
-					inv:set_stack("main", stack_id, od_ret)
-				elseif inv:room_for_item("main", od_ret) then
-					inv:add_item("main", od_ret)
-				else
-					local pos_variation = 100
-					droppos = {
-						x = droppos.x + math.random(-pos_variation, pos_variation) / 1000,
-						y = droppos.y + math.random(-pos_variation, pos_variation) / 1000,
-						z = droppos.z + math.random(-pos_variation, pos_variation) / 1000,
-					}
-					local item_entity = core.add_item(droppos, dropitem)
-					local drop_vel = vector.subtract(droppos, pos)
-					local speed = 3
-					item_entity:set_velocity(vector.multiply(drop_vel, speed))
-				end
+			local result = stackdef._on_dispense(dropitem, pos, droppos, dropnode, dropdir)
+			stack:take_item()
+			if stack:is_empty() then
+				inv:set_stack("main", stack_id, result or ItemStack())
 			else
-				stack:take_item()
 				inv:set_stack("main", stack_id, stack)
+				if result then
+					local left = inv:add_item("main", result)
+					if not left:is_empty() and not eject(pos, droppos, left) then
+						-- The callback has already changed the world. Keep its output
+						-- if the engine temporarily cannot spawn a dropped item.
+						inv:set_size("remainder", 1)
+						inv:set_stack("remainder", 1, left)
+						core.get_node_timer(pos):start(1)
+					end
+				end
 			end
 		elseif core.get_item_group(dropitem:get_name(), "shears") == 0 then
 			drop(pos, droppos, dropitem, inv, stack_)
@@ -180,20 +185,12 @@ local function activate_dispenser(pos, droppos, dropdir, inv, stack_)
 end
 
 local function activate(pos, activate_func)
+	if not flush_remainder(pos) then return end
 	local node = core.get_node(pos)
 	local meta = core.get_meta(pos)
 	local inv = meta:get_inventory()
-	local droppos, dropdir
-	if node.name:match("_up$") then
-		dropdir = vector.new(0, 1, 0)
-		droppos = vector.offset(pos, 0, 1, 0)
-	elseif node.name:match("_down$") then
-		dropdir = vector.new(0, -1, 0)
-		droppos = vector.offset(pos, 0, -1, 0)
-	else
-		dropdir = vector.multiply(core.facedir_to_dir(node.param2), -1)
-		droppos = vector.add(pos, dropdir)
-	end
+	local dropdir = dispense_direction(node)
+	local droppos = pos + dropdir
 	local stacks = {} -- Y
 	for i = 1, inv:get_size("main") do
 		local stack = inv:get_stack("main", i)
@@ -215,7 +212,8 @@ local commdef  = {
 		pickaxey = 1, container = 2, material_stone = 1,
 		jigsaw_construct = 1, jigsaw_preserve_meta = 1
 	},
-	after_dig_node = mcl_util.drop_items_from_meta_container({"main"}),
+	after_dig_node = mcl_util.drop_items_from_meta_container({"main", "remainder"}),
+	on_timer = function(pos) return not flush_remainder(pos) end,
 	allow_metadata_inventory_move = function(pos, from_list, from_index, to_list, to_index, count, player)
 		local name = player:get_player_name()
 		if core.is_protected(pos, name) then

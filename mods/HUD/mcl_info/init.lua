@@ -8,6 +8,8 @@ local refresh_interval      = .63
 local huds                  = {}
 local default_debug         = 0
 
+dofile(core.get_modpath(modname) .. "/coordinates.lua")
+
 local function check_setting(s)
 	return s
 end
@@ -69,6 +71,9 @@ local function info()
 	for player in mcl_util.connected_players() do
 		local name = player:get_player_name()
 		local s = player_setting(player)
+		if s and s > 1 and not core.check_player_privs(name, {debug = true}) then
+			s = 1
+		end
 		local text = get_text(player, s)
 		local hud = huds[name]
 		if s and not hud then
@@ -133,8 +138,8 @@ core.register_chatcommand("whereami", {
 		if params == "" then
 			return true, "Location bitmask is " .. player_setting(player)
 		end
-		local loc_lev = math.floor(tonumber(params) or default_debug)
-		if loc_lev < 0 or loc_lev > 4 then
+		local loc_lev = tonumber(params)
+		if loc_lev ~= 0 and loc_lev ~= 1 then
 			core.chat_send_player(name, S("Error! Possible values are integer numbers from @1 to @2", 0, 1))
 			return false, "Current bitmask: " .. player_setting(player)
 		end

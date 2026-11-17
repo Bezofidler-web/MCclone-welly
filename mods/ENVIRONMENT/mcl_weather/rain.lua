@@ -164,6 +164,9 @@ function mcl_weather.rain.clear()
 	mcl_weather.rain.init_done = false
 	mcl_weather.rain.set_particles_mode("rain")
 	mcl_weather.skycolor.remove_layer("weather-pack-rain-sky")
+	if mcl_weather.snow.init_done then
+		mcl_weather.snow.clear()
+	end
 	for player in mcl_util.connected_players() do
 		mcl_weather.rain.remove_sound(player)
 		mcl_weather.rain.remove_player(player)
@@ -191,9 +194,6 @@ function mcl_weather.rain.make_weather()
 		elseif mcl_weather.is_underwater (player) or not mcl_weather.has_rain(pos) then
 			mcl_weather.rain.remove_sound(player)
 			mcl_weather.remove_spawners_player(player)
-			if mcl_worlds.has_weather(pos) then
-				mcl_weather.set_sky_box_clear(player)
-			end
 		else
 			if mcl_weather.has_snow(pos) then
 				mcl_weather.snow.make_weather_for_player(player)
@@ -201,7 +201,6 @@ function mcl_weather.rain.make_weather()
 				mcl_weather.rain.add_player(player)
 				mcl_weather.rain.add_rain_particles(player)
 				mcl_weather.rain.update_sound(player)
-				mcl_weather.rain.set_sky_box()
 			end
 		end
 	end

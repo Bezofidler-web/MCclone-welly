@@ -4,6 +4,26 @@
 
 mcl_sounds = {}
 
+local door_events = {}
+local door_event_file = io.open(core.get_modpath(core.get_current_modname()) .. "/sounds/java_door_events.json", "r")
+if door_event_file then
+	door_events = core.parse_json(door_event_file:read("*a")) or {}
+	door_event_file:close()
+end
+
+function mcl_sounds.play_door_event(pos, event, fallback, fallback_gain)
+	local options = {pos = pos, max_hear_distance = 16, gain = fallback_gain}
+	local variants = door_events[event]
+	if variants and #variants > 0 then
+		local variant = variants[math.random(#variants)]
+		options.gain = variant.gain
+		options.pitch = variant.pitch * (0.9 + math.random() * 0.1)
+		core.sound_play(variant.name, options, true)
+	else
+		core.sound_play(fallback, options, true)
+	end
+end
+
 function mcl_sounds.node_sound_defaults(table)
 	table = table or {}
 	table.footstep = table.footstep or
@@ -131,7 +151,7 @@ function mcl_sounds.node_sound_wool_defaults(table)
 			{name="mcl_sounds_cloth", gain=0.8}
 	table.dig = table.dig or
 			{name="mcl_sounds_cloth", gain=0.8}
-	table.place = table.dig or
+	table.place = table.place or
 			{name="mcl_sounds_cloth", gain=0.8}
 	mcl_sounds.node_sound_defaults(table)
 	return table

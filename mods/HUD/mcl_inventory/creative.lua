@@ -504,9 +504,6 @@ function mcl_inventory.set_creative_formspec(player)
 			"label[12.275,5.35;" .. F(C("#FFFFFF", tostring(stack_size ~= 1 and stack_size or ""))) .. "]",
 			"tooltip[__switch_stack;" .. F(S("Switch stack size")) .. "]",
 
-			-- Skins button
-			"image_button[11.575,5.825;1.1,1.1;mcl_player_settings.png;__mcl_player_settings;]",
-			"tooltip[__mcl_player_settings;" .. F(S("Player settings")) .. "]",
 		})
 
 		-- For shortcuts
@@ -520,15 +517,19 @@ function mcl_inventory.set_creative_formspec(player)
 		local default_scroll = tostring(protocol_version >= SCROLLBAR_MIN_CLIENT_VERSION)
 		local scroll = (mcl_player.get_player_setting(player, "mcl_inventory:scroll_on_creative_inventory") or default_scroll) == "true"
 
-		if scroll then
+		if name == "nix" and inv_size == 0 then
+			main_list = "label[0.375,1.22;" .. F(S("No items found")) .. "]"
+		elseif scroll then
 			local nb_lines = math.ceil(inv_size / 9)
+			local scroll_max = math.max(nb_lines - 5, 0)
+			local scroll_pos = math.max(0, math.min(players[playername].scroll_pos or 0, scroll_max))
 			main_list = table.concat({
 				mcl_formspec.get_itemslot_bg_v4(0.375, 0.875, 9, 5),
 				"scroll_container[0.375,0.875;11.575,6;scroll;vertical;1.25]",
 				"list[detached:creative_", playername, ";main;0,0;9,", nb_lines, ";]",
 				"scroll_container_end[]",
-				"scrollbaroptions[min=0;max=", math.max(nb_lines - 5, 0), ";smallstep=1;largestep=1;arrows=hide]",
-				"scrollbar[11.75,0.825;0.75,6.1;vertical;scroll;0]"
+				"scrollbaroptions[min=0;max=", scroll_max, ";smallstep=1;largestep=1;arrows=hide]",
+				"scrollbar[11.75,0.825;0.75,6.1;vertical;scroll;", scroll_pos, "]"
 			})
 		else
 			main_list = table.concat({
@@ -570,25 +571,32 @@ function mcl_inventory.set_creative_formspec(player)
 
 	local touch_enabled = is_touch_enabled(playername)
 	players[playername].last_touch_enabled = touch_enabled
+	local navigation, navigation_height = mcl_inventory.navigation_bar(player, 13, 12.44, false)
 
 	local formspec = table.concat({
-		"formspec_version[6]",
-		-- Original formspec height was 8.75, increased to include tab buttons.
-		-- This avoids tab buttons going off-screen with high scaling values.
-		"size[13,11.43]",
+		"formspec_version[8]",
+		("size[13,%g]"):format(12.44 + navigation_height),
 		-- Use as much space as possible on mobile - the tab buttons are a lot
 		-- of padding already.
 		touch_enabled and "padding[-0.015,-0.015]" or "",
 
 		"no_prepend[]", mcl_vars.gui_nonbg, mcl_vars.gui_bg_color,
+		"bgcolor[;true;#00000099]",
+		"box[0,0;13,0.84;#202620]",
+		"style_type[label;textcolor=#F2F5EF;font=bold;font_size=*1.15]",
+		"label[0.5,0.42;" .. F(S("Creative Inventory")) .. "]",
+		"style_type[label;textcolor=#323232;font=normal;font_size=*1]",
+		"container[0,0.9]",
 		"background9[0,1.34;13,8.75;mcl_base_textures_background9.png;;7]",
 		"container[0,1.34]",
 
 		-- Hotbar
+		"label[0.375,7.11;" .. F(S("Hotbar")) .. "]",
 		mcl_formspec.get_itemslot_bg_v4(0.375, 7.375, 9, 1),
 		"list[current_player;main;0.375,7.375;9,1;]",
 
 		-- Trash
+		"label[11.625,7.11;" .. F(S("Trash")) .. "]",
 		mcl_formspec.get_itemslot_bg_v4(11.625, 7.375, 1, 1, nil, "crafting_creative_trash.png"),
 		"list[detached:trash;main;11.625,7.375;1,1;]",
 
@@ -634,13 +642,17 @@ function mcl_inventory.set_creative_formspec(player)
 		end
 
 		formspec = formspec .. table.concat({
-			"field[5.325,0.15;6.1,0.6;search;;" .. core.formspec_escape(filter) .. "]",
+			"image[4.55,0.105;5.6,0.64;mcl_inventory_background9.png;2]",
+			"style[search;border=false;textcolor=#FFFFFF]",
+			"field[4.65,0.125;5.4,0.59;search;;" .. F(filter) .. "]",
 			"field_enter_after_edit[search;true]",
 			"field_close_on_enter[search;false]",
 			"set_focus[search;true]",
+			"style[__mcl_search:hovered,__mcl_search:focused;bgimg=mcl_inventory_button9.png^[multiply:#B6CDA9]",
+			"button[10.35,0.105;2.25,0.64;__mcl_search;" .. F(S("Search")) .. "]",
 		})
 	end
-	formspec = formspec .. "container_end[]"
+	formspec = formspec .. "container_end[]container_end[]" .. navigation
 	if pagenum then formspec = formspec .. "p" .. tostring(pagenum) end
 	mcl_player.set_inventory_formspec (player, formspec, 0)
 end
@@ -651,18 +663,20 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 	if not core.is_creative_enabled(player:get_player_name()) then
 		return
 	end
-	if formname ~= "" or fields.quit == "true" then
-		-- No-op if formspec closed or not player inventory (formname == "")
-		return
-	end
-
-	-- Do not resend formspec when moving scrollbar
-	local scrollbar_event = core.explode_scrollbar_event(fields.scroll)
-	if scrollbar_event.type == "CHG" then
+	if formname ~= "" or fields.quit or fields.__mcl_player_settings or fields.__mcl_friends_controls
+		or fields.__mcl_inventory_commands or fields.__mcl_online_players or fields.__mcl_full_map then
+		-- Preserve the current tab and search when opening a separate menu.
 		return
 	end
 
 	local name = player:get_player_name()
+	if not players[name] then return end
+	-- Record scrolling without redrawing so menu round trips keep the same place.
+	local scrollbar_event = core.explode_scrollbar_event(fields.scroll)
+	if scrollbar_event.type == "CHG" then
+		players[name].scroll_pos = scrollbar_event.value
+		return
+	end
 
 	if fields.blocks or fields.blocks_outer then
 		if players[name].page == "blocks" then return end
@@ -746,6 +760,7 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 	else
 		-- Reset scroll bar if not scrolled
 		start_i = 0
+		players[name].scroll_pos = 0
 	end
 	if start_i < 0 then
 		start_i = start_i + 9 * 5
@@ -776,7 +791,6 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 		players[name].filter = ""
 	end
 
-	mcl_inventory.set_creative_formspec(player)
 	mcl_inventory.show_inventory(player)
 end)
 

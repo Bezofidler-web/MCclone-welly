@@ -288,3 +288,9 @@ local pig_spawner = table.merge (mobs_mc.animal_spawner, {
 	weight = 10,
 })
 mcl_mobs.register_spawner (pig_spawner)
+mcl_mobs.register_spawner (table.merge (pig_spawner, {
+	biomes = { "CherryGrove" },
+	weight = 1,
+	pack_min = 1,
+	pack_max = 2,
+}))

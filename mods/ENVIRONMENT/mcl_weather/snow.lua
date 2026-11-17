@@ -33,6 +33,8 @@ function mcl_weather.has_snow(pos)
 end
 
 function mcl_weather.snow.set_sky_box()
+	if mcl_weather.snow.init_done then return end
+	mcl_weather.snow.init_done = true
 	mcl_weather.skycolor.add_layer(
 		"weather-pack-snow-sky",
 		{{r=0, g=0, b=0},

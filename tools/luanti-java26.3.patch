@@ -1,0 +1,1966 @@
+diff --git a/client/shaders/mcl_pause_blur_h/opengl_fragment.glsl b/client/shaders/mcl_pause_blur_h/opengl_fragment.glsl
+new file mode 100644
+index 0000000..d50ecb4
+--- /dev/null
++++ b/client/shaders/mcl_pause_blur_h/opengl_fragment.glsl
+@@ -0,0 +1,14 @@
++uniform sampler2D texture0;
++uniform vec2 texelSize0;
++CENTROID_ VARYING_ mediump vec2 varTexCoord;
++
++void main(void)
++{
++	vec2 direction = vec2(texelSize0.x, 0.0);
++	vec3 colour = texture2D(texture0, varTexCoord + direction * 5.0).rgb * 0.5;
++	for (int pair = 0; pair < 5; ++pair) {
++		float offset = 2.0 * float(pair) - 4.5;
++		colour += texture2D(texture0, varTexCoord + direction * offset).rgb;
++	}
++	gl_FragColor = vec4(colour / 5.5, 1.0);
++}
+diff --git a/client/shaders/mcl_pause_blur_h/opengl_vertex.glsl b/client/shaders/mcl_pause_blur_h/opengl_vertex.glsl
+new file mode 100644
+index 0000000..1763ae8
+--- /dev/null
++++ b/client/shaders/mcl_pause_blur_h/opengl_vertex.glsl
+@@ -0,0 +1,7 @@
++CENTROID_ VARYING_ mediump vec2 varTexCoord;
++
++void main(void)
++{
++	varTexCoord = inTexCoord0.st;
++	gl_Position = inVertexPosition;
++}
+diff --git a/client/shaders/mcl_pause_blur_v/opengl_fragment.glsl b/client/shaders/mcl_pause_blur_v/opengl_fragment.glsl
+new file mode 100644
+index 0000000..ced5ecf
+--- /dev/null
++++ b/client/shaders/mcl_pause_blur_v/opengl_fragment.glsl
+@@ -0,0 +1,14 @@
++uniform sampler2D texture0;
++uniform vec2 texelSize0;
++CENTROID_ VARYING_ mediump vec2 varTexCoord;
++
++void main(void)
++{
++	vec2 direction = vec2(0.0, texelSize0.y);
++	vec3 colour = texture2D(texture0, varTexCoord + direction * 5.0).rgb * 0.5;
++	for (int pair = 0; pair < 5; ++pair) {
++		float offset = 2.0 * float(pair) - 4.5;
++		colour += texture2D(texture0, varTexCoord + direction * offset).rgb;
++	}
++	gl_FragColor = vec4(colour / 5.5, 1.0);
++}
+diff --git a/client/shaders/mcl_pause_blur_v/opengl_vertex.glsl b/client/shaders/mcl_pause_blur_v/opengl_vertex.glsl
+new file mode 100644
+index 0000000..1763ae8
+--- /dev/null
++++ b/client/shaders/mcl_pause_blur_v/opengl_vertex.glsl
+@@ -0,0 +1,7 @@
++CENTROID_ VARYING_ mediump vec2 varTexCoord;
++
++void main(void)
++{
++	varTexCoord = inTexCoord0.st;
++	gl_Position = inVertexPosition;
++}
+diff --git a/irr/src/OpenGL/Driver.cpp b/irr/src/OpenGL/Driver.cpp
+index 6ba090c..5b8e200 100644
+--- a/irr/src/OpenGL/Driver.cpp
++++ b/irr/src/OpenGL/Driver.cpp
+@@ -651,12 +651,16 @@ void COpenGL3DriverBase::blitRenderTarget(IRenderTarget *from, IRenderTarget *to
+ 
+ 	COpenGL3RenderTarget *src = static_cast<COpenGL3RenderTarget *>(from);
+ 	COpenGL3RenderTarget *dst = static_cast<COpenGL3RenderTarget *>(to);
+-	GL.BindFramebuffer(GL.READ_FRAMEBUFFER, src->getBufferID());
++	// A null source reads the window, which only supplies colour to this copy.
++	const auto from_size = src ? src->getSize() : ScreenSize;
++	GL.BindFramebuffer(GL.READ_FRAMEBUFFER, src ? src->getBufferID() : 0);
+ 	GL.BindFramebuffer(GL.DRAW_FRAMEBUFFER, dst->getBufferID());
++	const auto mask = src ? GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT :
++			GL.COLOR_BUFFER_BIT;
+ 	GL.BlitFramebuffer(
+-			0, 0, src->getSize().Width, src->getSize().Height,
++			0, 0, from_size.Width, from_size.Height,
+ 			0, 0, dst->getSize().Width, dst->getSize().Height,
+-			GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT, GL.NEAREST);
++			mask, GL.NEAREST);
+ 
+ 	TEST_GL_ERROR(this);
+ 
+diff --git a/src/chat.cpp b/src/chat.cpp
+index b5fe804..261e64f 100644
+--- a/src/chat.cpp
++++ b/src/chat.cpp
+@@ -523,6 +523,7 @@ void ChatPrompt::clear()
+ 	makeLineRef().clear();
+ 	m_view = 0;
+ 	m_cursor = 0;
++	m_cursor_len = 0;
+ }
+ 
+ std::wstring ChatPrompt::replace(const std::wstring &line)
+@@ -675,6 +676,14 @@ s32 ChatPrompt::getVisibleCursorPosition() const
+ 	return m_cursor - m_view + m_prompt.size();
+ }
+ 
++void ChatPrompt::moveCursorToVisibleColumn(s32 column)
++{
++	m_cursor = rangelim(m_view + column - static_cast<s32>(m_prompt.size()),
++			0, static_cast<s32>(getLineRef().size()));
++	m_cursor_len = 0;
++	clampView();
++}
++
+ void ChatPrompt::cursorOperation(CursorOp op, CursorOpDir dir, CursorOpScope scope)
+ {
+ 	s32 old_cursor = m_cursor;
+@@ -858,6 +867,8 @@ void ChatBackend::clearRecentChat()
+ void ChatBackend::applySettings()
+ {
+ 	u32 recent_lines = g_settings->getU32("recent_chat_messages");
++	if (g_settings->getBool("mcl_java_ui"))
++		recent_lines = std::max(recent_lines, 10U);
+ 	recent_lines = rangelim(recent_lines, 2, 20);
+ 	m_recent_buffer.resize(recent_lines);
+ }
+diff --git a/src/chat.h b/src/chat.h
+index ea6e4f1..2c31246 100644
+--- a/src/chat.h
++++ b/src/chat.h
+@@ -181,6 +181,8 @@ public:
+ 
+ 	// Update console size and reformat the visible portion of the prompt
+ 	void reformat(u32 cols);
++	void setPrefix(const wchar_t *prefix) { m_prompt = prefix; }
++	void moveCursorToVisibleColumn(s32 column);
+ 	// Get visible portion of the prompt.
+ 	std::wstring getVisiblePortion() const;
+ 	// Get cursor position (relative to visible portion). -1 if invalid
+diff --git a/src/client/CMakeLists.txt b/src/client/CMakeLists.txt
+index 2f68883..60d378d 100644
+--- a/src/client/CMakeLists.txt
++++ b/src/client/CMakeLists.txt
+@@ -53,6 +53,7 @@ set(client_SRCS
+ 	${CMAKE_CURRENT_SOURCE_DIR}/fontengine.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/game.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/gameui.cpp
++	${CMAKE_CURRENT_SOURCE_DIR}/java_debug.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/game_formspec.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/guiscalingfilter.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/hud.cpp
+diff --git a/src/client/client.cpp b/src/client/client.cpp
+index 1feaf3d..c25cd8c 100644
+--- a/src/client/client.cpp
++++ b/src/client/client.cpp
+@@ -1908,6 +1908,12 @@ void Client::showUpdateProgressTexture(void *args, float progress)
+ 	if (!do_draw)
+ 		return;
+ 
++	if (g_settings->getBool("mcl_java_ui")) {
++		m_rendering_engine->draw_load_screen(wstrgettext("Loading resources..."), guienv, m_tsrc,
++				0, cur_percent, nullptr, {}, LoadingScreenStyle::Resources);
++		return;
++	}
++
+ 	std::wostringstream strm;
+ 	strm << targs->text_base << L" " << cur_percent << L"%...";
+ 	// 70% -> 99%
+@@ -1929,18 +1935,20 @@ void Client::afterContentReceived()
+ 	guiScalingCacheClear();
+ 
+ 	infostream<<"- Rebuilding images and textures"<<std::endl;
+-	m_rendering_engine->draw_load_screen(wstrgettext("Loading textures..."),
+-			guienv, m_tsrc, 0, 66);
++	const bool java_ui = g_settings->getBool("mcl_java_ui");
++	const auto style = java_ui ? LoadingScreenStyle::Resources : LoadingScreenStyle::Message;
++	m_rendering_engine->draw_load_screen(wstrgettext(java_ui ? "Loading resources..." : "Loading textures..."),
++			guienv, m_tsrc, 0, java_ui ? -1 : 66, nullptr, {}, style);
+ 	m_tsrc->rebuildImagesAndTextures();
+ 
+ 	infostream<<"- Rebuilding shaders"<<std::endl;
+-	m_rendering_engine->draw_load_screen(wstrgettext("Rebuilding shaders..."),
+-			guienv, m_tsrc, 0, 68);
++	m_rendering_engine->draw_load_screen(wstrgettext(java_ui ? "Loading resources..." : "Rebuilding shaders..."),
++			guienv, m_tsrc, 0, java_ui ? -1 : 68, nullptr, {}, style);
+ 	m_shsrc->rebuildShaders();
+ 
+ 	infostream<<"- Updating node aliases"<<std::endl;
+-	m_rendering_engine->draw_load_screen(wstrgettext("Initializing nodes..."),
+-			guienv, m_tsrc, 0, 70);
++	m_rendering_engine->draw_load_screen(wstrgettext(java_ui ? "Loading resources..." : "Initializing nodes..."),
++			guienv, m_tsrc, 0, java_ui ? -1 : 70, nullptr, {}, style);
+ 	m_nodedef->updateAliases(m_itemdef);
+ 	// Apply texture overrides from texturepack/override.txt
+ 	for (const std::string &path : getTexturePathsReversed()) {
+@@ -1973,7 +1981,8 @@ void Client::afterContentReceived()
+ 	if (m_mods_loaded)
+ 		m_script->on_client_ready(m_env.getLocalPlayer());
+ 
+-	m_rendering_engine->draw_load_screen(wstrgettext("Done!"), guienv, m_tsrc, 0, 100);
++	if (!java_ui)
++		m_rendering_engine->draw_load_screen(wstrgettext("Done!"), guienv, m_tsrc, 0, 100);
+ 	infostream<<"Client::afterContentReceived() done"<<std::endl;
+ }
+ 
+diff --git a/src/client/game.cpp b/src/client/game.cpp
+index f901556..77ae606 100644
+--- a/src/client/game.cpp
++++ b/src/client/game.cpp
+@@ -5,7 +5,9 @@
+ #include "game_internal.h"
+ 
+ #include <cmath>
++#include <charconv>
+ #include <csignal>
++#include <string_view>
+ #include "client/gameui.h"
+ #include "client/inputhandler.h"
+ #include "client/texturepaths.h"
+@@ -51,6 +53,7 @@
+ #include <ICameraSceneNode.h>
+ #include "util/tracy_wrapper.h"
+ #include "item_visuals_manager.h"
++#include "java_debug.h"
+ 
+ #if USE_SOUND
+ 	#include "client/sound/sound_openal.h"
+@@ -449,7 +452,7 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
+ 	m_game_ui->initFlags();
+ 	if (g_settings->getBool("show_debug")) {
+ 		m_flags.debug_state = 1;
+-		m_game_ui->m_flags.show_minimal_debug = true;
++		m_game_ui->m_flags.show_minimal_debug = !g_settings->getBool("mcl_java_ui");
+ 	}
+ 
+ 	m_first_loop_after_window_activation = true;
+@@ -466,7 +469,7 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
+ 
+ 	m_game_formspec.init(client, m_rendering_engine, input);
+ 
+-	return true;
++	return !g_settings->getBool("mcl_java_ui") || waitForJavaTerrain();
+ }
+ 
+ 
+@@ -607,6 +610,10 @@ void Game::run()
+ 
+ void Game::shutdown()
+ {
++	const bool save_world = g_settings->getBool("mcl_java_ui") && server;
++	const char *message = save_world ? N_("Saving world") : N_("Shutting down...");
++	const auto style = save_world ? LoadingScreenStyle::Saving : LoadingScreenStyle::Message;
++
+ 	// Delete text and menus first
+ 	m_game_ui->clearText();
+ 	m_game_formspec.reset();
+@@ -632,7 +639,7 @@ void Game::shutdown()
+ 
+ 	// only if the shutdown progress bar isn't shown yet
+ 	if (m_shutdown_progress == 0.0f)
+-		showOverlayMessage(N_("Shutting down..."), 0, 0);
++		showOverlayMessage(message, 0, 0, nullptr, style);
+ 
+ 	chat_backend->addMessage(L"", L"# Disconnected.");
+ 	chat_backend->addMessage(L"", L"");
+@@ -665,7 +672,7 @@ void Game::shutdown()
+ 		m_rendering_engine->run();
+ 		f32 dtime;
+ 		fps_control.limit(device, &dtime);
+-		showOverlayMessage(N_("Shutting down..."), dtime, 0, &m_shutdown_progress);
++		showOverlayMessage(message, dtime, 0, &m_shutdown_progress, style);
+ 	}
+ 
+ 	stop_thread->rethrow();
+@@ -739,7 +746,9 @@ bool Game::initSound()
+ 
+ bool Game::createServer(GameStartData &start_data)
+ {
+-	showOverlayMessage(N_("Creating server..."), 0, 5);
++	const char *starting_world = g_settings->getBool("mcl_java_ui") ?
++			N_("Reading world data...") : N_("Creating server...");
++	showOverlayMessage(starting_world, 0, 5);
+ 
+ 	std::string bind_str;
+ 	if (simple_singleplayer_mode) {
+@@ -793,7 +802,7 @@ bool Game::createServer(GameStartData &start_data)
+ 		fps_control.limit(device, &dtime);
+ 
+ 		if (success)
+-			showOverlayMessage(N_("Creating server..."), dtime, 5);
++			showOverlayMessage(starting_world, dtime, 5);
+ 		else
+ 			showOverlayMessage(N_("Shutting down..."), dtime, 0, &m_shutdown_progress);
+ 	}
+@@ -834,7 +843,9 @@ bool Game::createClient(const GameStartData &start_data)
+ 		return false;
+ 
+ 	bool could_connect, connect_aborted;
+-	if (!connectToServer(start_data, &could_connect, &connect_aborted))
++	const bool attempted_connection = connectToServer(start_data, &could_connect, &connect_aborted);
++	m_rendering_engine->clear_java_loading_controls();
++	if (!attempted_connection)
+ 		return false;
+ 
+ 	if (!could_connect) {
+@@ -845,7 +856,9 @@ bool Game::createClient(const GameStartData &start_data)
+ 		return false;
+ 	}
+ 
+-	if (!getServerContent(&connect_aborted)) {
++	const bool received_content = getServerContent(&connect_aborted);
++	m_rendering_engine->clear_java_loading_controls();
++	if (!received_content) {
+ 		if (error_message->empty() && !connect_aborted) {
+ 			// Should not happen if error messages are set properly
+ 			errordata->setError(gettext("Connection failed for unknown reason"));
+@@ -964,6 +977,7 @@ bool Game::connectToServer(const GameStartData &start_data,
+ 	*connect_ok = false;	// Let's not be overly optimistic
+ 	*connection_aborted = false;
+ 	const auto &address_name = start_data.address;
++	const bool java_ui = g_settings->getBool("mcl_java_ui");
+ 
+ 	showOverlayMessage(N_("Resolving address..."), 0, 15);
+ 
+@@ -1057,6 +1071,13 @@ bool Game::connectToServer(const GameStartData &start_data,
+ 			// Update client and server
+ 			step(dtime);
+ 
++			// Honour a click delivered by this frame even if the server has
++			// finished negotiating at the same time.
++			if (m_rendering_engine->java_load_cancel_requested()) {
++				*connection_aborted = true;
++				break;
++			}
++
+ 			// End condition
+ 			if (client->getState() == LC_Init) {
+ 				*connect_ok = true;
+@@ -1091,7 +1112,13 @@ bool Game::connectToServer(const GameStartData &start_data,
+ 			}
+ 
+ 			// Update status
+-			showOverlayMessage(N_("Connecting to server..."), dtime, 20);
++			if (!java_ui)
++				showOverlayMessage(N_("Connecting to server..."), dtime, 20);
++			else if (server)
++				showOverlayMessage(N_("Loading terrain..."), dtime, -1, nullptr, LoadingScreenStyle::Terrain);
++			else
++				showOverlayMessage(client->hasServerReplied() ? N_("Logging in...") :
++						N_("Connecting to the server..."), dtime, -1, nullptr, LoadingScreenStyle::Connecting);
+ 		}
+ 		framemarker.end();
+ 	} catch (con::PeerNotFoundException &e) {
+@@ -1105,6 +1132,7 @@ bool Game::connectToServer(const GameStartData &start_data,
+ bool Game::getServerContent(bool *aborted)
+ {
+ 	input->clear();
++	const bool java_ui = g_settings->getBool("mcl_java_ui");
+ 
+ 	FpsControl fps_control;
+ 	f32 dtime; // in seconds
+@@ -1120,6 +1148,11 @@ bool Game::getServerContent(bool *aborted)
+ 		// Update client and server
+ 		step(dtime);
+ 
++		if (m_rendering_engine->java_load_cancel_requested()) {
++			*aborted = true;
++			return false;
++		}
++
+ 		// End condition
+ 		if (client->mediaReceived() && client->itemdefReceived() &&
+ 				client->nodedefReceived()) {
+@@ -1142,6 +1175,20 @@ bool Game::getServerContent(bool *aborted)
+ 			return false;
+ 		}
+ 
++		if (java_ui) {
++			if (!client->itemdefReceived() || !client->nodedefReceived()) {
++				showOverlayMessage(N_("Negotiating..."), dtime, -1, nullptr,
++						server ? LoadingScreenStyle::Message : LoadingScreenStyle::Connecting);
++			} else {
++				s32 received = 0, total = 0;
++				size_t bytes = 0;
++				const int percent = client->mediaReceiveProgress(received, total, bytes) && total > 0 ?
++						static_cast<int>(std::lround(100.0 * received / total)) : -1;
++				showOverlayMessage(N_("Loading resources..."), dtime, percent, nullptr, LoadingScreenStyle::Resources);
++			}
++			continue;
++		}
++
+ 		const char* units[] = {gettext("KiB"), gettext("MiB")};
+ 		auto adjust_unit = [&units](float &v) -> const char* {
+ 			int i = (v > 900) ? 1 : 0;
+@@ -1194,6 +1241,41 @@ bool Game::getServerContent(bool *aborted)
+ 	return false;
+ }
+ 
++bool Game::waitForJavaTerrain()
++{
++	FpsControl fps_control;
++	fps_control.reset();
++	auto &environment = client->getEnv();
++	LocalPlayer *player = environment.getLocalPlayer();
++	float elapsed = 0.0f;
++	input->clear();
++
++	// Show the arrival screen until the client has its own avatar and the
++	// server has sent the MapBlock at the player's feet. The timeout covers
++	// servers that put the player outside the available map.
++	while (m_rendering_engine->run()) {
++		float dtime;
++		fps_control.limit(device, &dtime);
++		step(dtime);
++		processQueues();
++		if (!checkConnection() || *kill || input->cancelPressed() ||
++				g_gamecallback->shutdown_requested)
++			return false;
++
++		const v3s16 center = floatToInt(player->getPosition(), BS);
++		const bool positioned = player->getCAO() != nullptr;
++		auto *block = positioned ?
++				environment.getClientMap().getBlockNoCreateNoEx(getNodeBlockPos(center)) : nullptr;
++		if (elapsed >= 30.0f || (block && block->isGenerated()))
++			return true;
++
++		m_rendering_engine->draw_load_screen(wstrgettext("Loading terrain..."),
++				guienv, texture_src, dtime, -1, nullptr, {},
++				LoadingScreenStyle::Terrain, positioned && server ? client : nullptr);
++		elapsed += dtime;
++	}
++	return false;
++}
+ 
+ /****************************************************************************/
+ /****************************************************************************
+@@ -1612,7 +1694,7 @@ void Game::openConsole(float scale, const wchar_t *line)
+ #endif
+ 	if (gui_chat_console->isOpenInhibited())
+ 		return;
+-	gui_chat_console->openConsole(scale);
++	gui_chat_console->openConsole(scale, line != nullptr);
+ 	if (line) {
+ 		gui_chat_console->setCloseOnEnter(true);
+ 		gui_chat_console->replaceAndAddToHistory(line);
+@@ -1810,6 +1892,11 @@ void Game::toggleFog()
+ 
+ void Game::toggleDebug()
+ {
++	if (g_settings->getBool("mcl_java_ui")) {
++		m_flags.debug_state = m_flags.debug_state == 0 ? 1 : 0;
++		return;
++	}
++
+ 	LocalPlayer *player = client->getEnv().getLocalPlayer();
+ 	bool has_debug = client->checkPrivilege("debug");
+ 	bool has_basic_debug = has_debug || (player->hud_flags & HUD_FLAG_BASIC_DEBUG);
+@@ -2242,6 +2329,25 @@ void Game::handleClientEvent_DeathscreenLegacy(ClientEvent *event, CameraOrienta
+ void Game::handleClientEvent_ShowFormSpec(ClientEvent *event, CameraOrientation *cam)
+ {
+ 	auto &fs = event->show_formspec;
++	m_java_dimension_progress = -1;
++	if (*fs.formname == "mcl_biome_dispatch:limbo_formspec" && g_settings->getBool("mcl_java_ui")) {
++		const std::string &spec = *fs.formspec;
++		constexpr std::string_view marker = "tooltip[mcl_java_terrain_progress;";
++		const auto start = spec.find(marker);
++		if (start != std::string::npos) {
++			const auto end = spec.find(']', start + marker.size());
++			if (end != std::string::npos) {
++				int percent = -1;
++				const char *last = spec.data() + end;
++				const auto result = std::from_chars(spec.data() + start + marker.size(), last, percent);
++				if (result.ec == std::errc{} && result.ptr == last && percent >= 0 && percent <= 100) {
++					m_java_dimension_progress = percent;
++					// Keep the existing modal input/close behaviour while drawing the native screen.
++					*fs.formspec = "formspec_version[8]size[1,1]no_prepend[]bgcolor[;neither]allow_close[false]";
++				}
++			}
++		}
++	}
+ 
+ 	if (fs.formname->empty() && !fs.formspec->empty()) {
+ 		m_game_formspec.showPlayerInventory(fs.formspec);
+@@ -3654,6 +3760,16 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
+ {
+ 	ZoneScoped;
+ 
++	if (m_java_dimension_progress >= 0 && g_settings->getBool("mcl_java_ui")) {
++		const auto *menu = g_menumgr.tryGetTopMenu();
++		if (menu && menu->getName() &&
++				std::string_view(menu->getName()) == "mcl_biome_dispatch:limbo_formspec") {
++			m_rendering_engine->draw_load_screen(wstrgettext("Loading terrain..."),
++					guienv, texture_src, 0, m_java_dimension_progress, nullptr, {}, LoadingScreenStyle::Terrain);
++			return;
++		}
++	}
++
+ 	const video::SColor fog_color = this->sky->getFogColor();
+ 	const video::SColor sky_color = this->sky->getSkyColor();
+ 
+@@ -3723,6 +3839,11 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
+ 					NULL);
+ 	}
+ 
++	if (m_flags.debug_state != 0 && m_game_ui->m_flags.show_hud &&
++			(!isMenuActive() || gui_chat_console->isVisible()) && g_settings->getBool("mcl_java_ui")) {
++		drawJavaDebugOverlay(*client, *driver, runData.pointed_old, stats->dtime_jitter.avg);
++	}
++
+ 	// Must be called immediately before endScene() to capture the rendered frame
+ 	this->client->takeScreenshotIfRequested();
+ 
+@@ -3737,10 +3858,11 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
+  Misc
+  ****************************************************************************/
+ 
+-void Game::showOverlayMessage(const char *msg, float dtime, int percent, float *indef_pos)
++void Game::showOverlayMessage(const char *msg, float dtime, int percent, float *indef_pos,
++		LoadingScreenStyle style)
+ {
+ 	m_rendering_engine->draw_load_screen(wstrgettext(msg), guienv, texture_src,
+-			dtime, percent, indef_pos);
++			dtime, percent, indef_pos, {}, style);
+ }
+ 
+ void Game::settingChangedCallback(const std::string &setting_name, void *data)
+diff --git a/src/client/game_formspec.cpp b/src/client/game_formspec.cpp
+index b10e8da..5d2fc12 100644
+--- a/src/client/game_formspec.cpp
++++ b/src/client/game_formspec.cpp
+@@ -4,6 +4,9 @@
+ 
+ #include "game_formspec.h"
+ 
++#include <algorithm>
++#include <cmath>
++#include <sstream>
+ #include "gettext.h"
+ #include "nodemetadata.h"
+ #include "renderingengine.h"
+@@ -20,6 +23,7 @@
+ #include "gui/guiOpenURL.h"
+ #include "gui/guiVolumeChange.h"
+ #include "localplayer.h"
++#include "texturesource.h"
+ 
+ /*
+ 	Text input system
+@@ -116,6 +120,176 @@ struct HardcodedPauseFormspecHandler : public TextDest
+ 	}
+ };
+ 
++class JavaPauseFormSource final : public IFormSource
++{
++public:
++	JavaPauseFormSource(ITextureSource *textures, bool local_game) :
++		m_textures(textures), m_local_game(local_game)
++	{
++	}
++
++	void setOptions(bool options)
++	{
++		m_options = options;
++		m_form.clear();
++	}
++
++	bool isOptions() const { return m_options; }
++
++	const std::string &getForm() const override
++	{
++		const v2u32 screen = RenderingEngine::get_video_driver()->getScreenSize();
++		const float density = RenderingEngine::getDisplayDensity() * g_settings->getFloat("gui_scaling");
++		if (!m_form.empty() && screen == m_screen && density == m_density)
++			return m_form;
++
++		m_screen = screen;
++		m_density = density;
++		// Match Java's automatic GUI scaling and logical-pixel layout.
++		const s32 scale = std::max<u32>(1, std::min(screen.X / 320, screen.Y / 240));
++		const s32 width = (screen.X + scale - 1) / scale;
++		const s32 height = (screen.Y + scale - 1) / scale;
++		constexpr s32 full = 204;
++		constexpr s32 half = 98;
++		constexpr s32 row = 24;
++		constexpr s32 button_height = 20;
++		const s32 left = (width - full) / 2;
++		const s32 right = left + half + 8;
++		// Java's grid has 50px top padding and four rows with 4px top padding.
++		const s32 top = (height - (50 + button_height + 4 * row)) / 4 + 50;
++		const s32 font_size = std::max(1, static_cast<int>(std::lround(8 * scale /
++				std::max(0.01f, density))));
++
++		const std::string normal = buttonTexture("mcl_options_button.png", scale);
++		const std::string active = buttonTexture("mcl_options_button_highlighted.png", scale);
++		std::ostringstream os;
++		// A fullscreen form with zero padding has one physical pixel per unit.
++		os << "formspec_version[8]size[" << screen.X << ',' << screen.Y
++			<< "]position[0,0]anchor[0,0]padding[0,0]no_prepend[]bgcolor[;true;#00000040]"
++			<< "style_type[button,image_button;border=false;bgimg="
++			<< normal << ";bgimg_middle=" << 3 * scale << ";textcolor=#FFFFFF;font_size="
++			<< font_size << ']'
++			<< "style_type[button:hovered,button:focused,button:pressed,"
++			   "image_button:hovered,image_button:focused,image_button:pressed;bgimg="
++			<< active << ']'
++			<< "style_type[label;halign=center;valign=center;textcolor=#FFFFFF;font_size="
++			<< font_size << ']'
++			<< "label[0," << 40 * scale << ';' << screen.X << ',' << 9 * scale << ';'
++			<< escaped(m_options ? gettext("Options") : gettext("Game Menu")) << ']';
++
++		auto button = [&](s32 x, s32 y, s32 w, const char *name, const char *label, bool exit = false) {
++			os << (exit ? "button_exit[" : "button[") << x * scale << ',' << y * scale
++				<< ';' << w * scale << ',' << button_height * scale << ';' << name << ';'
++				<< escaped(label) << ']';
++		};
++		auto icon = [&](s32 x, const char *name, const char *texture, const char *label, bool exit = false) {
++			os << (exit ? "image_button_exit[" : "image_button[") << x * scale << ','
++				<< (top + 2 * row) * scale << ';' << button_height * scale << ','
++				<< button_height * scale << ';' << texture << ';' << name << ";]"
++				<< "tooltip[" << name << ';' << escaped(label) << ']';
++		};
++
++		if (m_options) {
++			os << "allow_close[false]";
++			button(left, top, full, "btn_settings", gettext("Client Settings..."));
++#if !defined(__ANDROID__) && USE_SOUND
++			button(left, top + row, full, "btn_sound", gettext("Music & Sounds..."));
++#endif
++			if (!m_local_game)
++				button(left, top + 2 * row, full, "btn_change_password", gettext("Change Password"));
++			button(left, top + 3 * row, full, "btn_exit_os", gettext("Exit to Desktop"));
++			button(left, top + 4 * row, full, "btn_java_options_back", gettext("Done"));
++		} else {
++			const s32 icons_left = (width - (4 * button_height + 3 * 4)) / 2;
++			button(left, top, full, "btn_continue", gettext("Back to Game"), true);
++			button(left, top + row, half, "btn_java_advancements", gettext("Advancements"), true);
++			button(right, top + row, half, "btn_java_stats", gettext("Statistics"), true);
++			icon(icons_left, "btn_java_bugs", "mcl_java_pause_bug.png", gettext("Report Bugs"));
++			icon(icons_left + row, "btn_java_feedback", "mcl_java_pause_feedback.png", gettext("Give Feedback"));
++			icon(icons_left + 2 * row, "btn_java_players", "mcl_java_pause_friends.png", gettext("Players"), true);
++			if (!m_local_game) {
++				icon(icons_left + 3 * row, "btn_java_server", "mcl_java_pause_server.png",
++					gettext("Server Controls"), true);
++			} else {
++				const s32 x = (icons_left + 3 * row) * scale;
++				const s32 y = (top + 2 * row) * scale;
++				os << "image[" << x << ',' << y << ';' << button_height * scale << ','
++					<< button_height * scale << ";mcl_options_button.png^[multiply:#686868]"
++					<< "image[" << x + 3 * scale << ',' << y + 3 * scale << ';'
++					<< 14 * scale << ',' << 14 * scale << ";mcl_java_pause_server.png^[multiply:#686868]";
++			}
++			button(left, top + 3 * row, half, "btn_java_options", gettext("Options..."));
++			button(right, top + 3 * row, half, "btn_java_world", gettext("World Options..."), true);
++			button(left, top + 4 * row, full, "btn_exit_menu",
++				m_local_game ? gettext("Save and Quit to Title") : gettext("Disconnect"), true);
++		}
++
++		m_form = os.str();
++		return m_form;
++	}
++
++private:
++	static std::string escaped(const char *label)
++	{
++		std::string result = label;
++		str_formspec_escape(result);
++		return result;
++	}
++
++	std::string buttonTexture(const char *name, s32 scale) const
++	{
++		const auto *texture = m_textures->getTexture(name);
++		if (!texture || scale == 1)
++			return name;
++		const auto size = texture->getOriginalSize();
++		return std::string(name) + "^[resize:" + std::to_string(size.Width * scale) +
++				'x' + std::to_string(size.Height * scale);
++	}
++
++	ITextureSource *m_textures;
++	const bool m_local_game;
++	bool m_options = false;
++	mutable v2u32 m_screen;
++	mutable float m_density = 0.0f;
++	mutable std::string m_form;
++};
++
++struct JavaPauseFormspecHandler final : public HardcodedPauseFormspecHandler
++{
++	JavaPauseFormspecHandler(Client *client, JavaPauseFormSource *source) :
++		m_client(client), m_source(source)
++	{
++	}
++
++	void gotText(const StringMap &fields) override
++	{
++		if (fields.count("btn_java_options"))
++			m_source->setOptions(true);
++		else if (fields.count("btn_java_options_back") ||
++				(m_source->isOptions() && fields.count("try_quit")))
++			m_source->setOptions(false);
++		else if (fields.count("btn_java_advancements"))
++			m_client->sendChatMessage(L"/awards");
++		else if (fields.count("btn_java_stats"))
++			m_client->sendChatMessage(L"/mcl_java_pause statistics");
++		else if (fields.count("btn_java_players"))
++			m_client->sendChatMessage(L"/players");
++		else if (fields.count("btn_java_server"))
++			m_client->sendChatMessage(L"/mcl_java_pause server");
++		else if (fields.count("btn_java_world"))
++			m_client->sendChatMessage(L"/mcl_java_pause world");
++		else if (fields.count("btn_java_bugs"))
++			g_gamecallback->showOpenURLDialog("https://codeberg.org/mineclonia/mineclonia/issues");
++		else if (fields.count("btn_java_feedback"))
++			g_gamecallback->showOpenURLDialog("https://content.luanti.org/packages/ryvnf/mineclonia/");
++		else
++			HardcodedPauseFormspecHandler::gotText(fields);
++	}
++
++	Client *m_client;
++	JavaPauseFormSource *m_source;
++};
++
+ struct LegacyDeathFormspecHandler : public TextDest
+ {
+ 	LegacyDeathFormspecHandler(Client *client)
+@@ -357,6 +531,18 @@ void GameFormSpec::showPlayerInventory(const std::string *fs_override)
+ 
+ void GameFormSpec::showPauseMenu()
+ {
++	if (g_settings->getBool("mcl_java_ui")) {
++		auto *source = new JavaPauseFormSource(m_client->getTextureSource(),
++				m_client->getAddressName().empty());
++		auto *handler = new JavaPauseFormspecHandler(m_client, source);
++		GUIFormSpecMenu::create(m_formspec, m_client, m_rendering_engine->get_gui_env(),
++				source, handler, "", m_client->getSoundManager());
++		m_formspec->setName("mcl_java_pause");
++		m_formspec->setFocus("btn_continue");
++		m_formspec->doPause = true;
++		return;
++	}
++
+ 	std::string control_text;
+ 
+ 	if (g_touchcontrols) {
+diff --git a/src/client/game_internal.h b/src/client/game_internal.h
+index 6de7934..1515e5c 100644
+--- a/src/client/game_internal.h
++++ b/src/client/game_internal.h
+@@ -138,6 +138,7 @@ protected:
+ 	bool connectToServer(const GameStartData &start_data,
+ 			bool *connect_ok, bool *aborted);
+ 	bool getServerContent(bool *aborted);
++	bool waitForJavaTerrain();
+ 
+ 	// Main loop
+ 
+@@ -221,7 +222,7 @@ protected:
+ 
+ 	// Misc
+ 	void showOverlayMessage(const char *msg, float dtime, int percent,
+-			float *indef_pos = nullptr);
++			float *indef_pos = nullptr, LoadingScreenStyle style = LoadingScreenStyle::Message);
+ 
+ 	inline bool fogEnabled()
+ 	{
+@@ -396,4 +397,5 @@ private:
+ #endif
+ 
+ 	float m_shutdown_progress = 0.0f;
++	int m_java_dimension_progress = -1;
+ };
+diff --git a/src/client/gameui.cpp b/src/client/gameui.cpp
+index 29408ff..9cbc3b3 100644
+--- a/src/client/gameui.cpp
++++ b/src/client/gameui.cpp
+@@ -23,6 +23,27 @@
+ #include "version.h"
+ #include <IGUIFont.h>
+ 
++class GUIJavaRecentChat : public gui::IGUIElement
++{
++public:
++	GUIJavaRecentChat(gui::IGUIEnvironment *env, gui::IGUIElement *parent) :
++		IGUIElement(gui::EGUIET_ELEMENT, env, parent, -1, core::recti())
++	{
++		setVisible(false);
++	}
++
++	void draw() override
++	{
++		if (isVisible() && console) {
++			console->drawJavaRecentChat(messages_changed);
++			messages_changed = false;
++		}
++	}
++
++	GUIChatConsole *console = nullptr;
++	bool messages_changed = true;
++};
++
+ inline static const char *yawToDirectionString(int yaw)
+ {
+ 	static const char *direction[4] =
+@@ -47,6 +68,10 @@ void GameUI::init()
+ 	// Chat text
+ 	m_guitext_chat = gui::StaticText::add(guienv, L"", core::recti(),
+ 		false, true, guiroot);
++	if (g_settings->getBool("mcl_java_ui")) {
++		m_java_recent_chat = new GUIJavaRecentChat(guienv, guiroot);
++		m_java_recent_chat->drop(); // GUI root owns the element.
++	}
+ 	u16 chat_font_size = g_settings->getU16("chat_font_size");
+ 	if (chat_font_size != 0) {
+ 		m_guitext_chat->setOverrideFont(g_fontengine->getFont(
+@@ -79,7 +104,7 @@ void GameUI::init()
+ 
+ void GameUI::update(const RunStats &stats, Client *client, MapDrawControl *draw_control,
+ 	const CameraOrientation &cam, const PointedThing &pointed_old,
+-	const GUIChatConsole *chat_console, float dtime)
++	GUIChatConsole *chat_console, float dtime)
+ {
+ 	v2u32 screensize = RenderingEngine::getWindowSize();
+ 
+@@ -174,7 +199,14 @@ void GameUI::update(const RunStats &stats, Client *client, MapDrawControl *draw_
+ 	}
+ 
+ 	// Hide chat when disabled by server or when console is visible
+-	m_guitext_chat->setVisible(isChatVisible() && !chat_console->isVisible() && (player->hud_flags & HUD_FLAG_CHAT_VISIBLE));
++	const bool show_chat = isChatVisible() && !chat_console->isVisible() &&
++			(player->hud_flags & HUD_FLAG_CHAT_VISIBLE);
++	const bool java_chat = m_java_recent_chat && chat_console->usesJavaChat();
++	m_guitext_chat->setVisible(show_chat && !java_chat);
++	if (m_java_recent_chat) {
++		m_java_recent_chat->console = chat_console;
++		m_java_recent_chat->setVisible(java_chat && show_chat && m_flags.show_hud);
++	}
+ }
+ 
+ void GameUI::initFlags()
+@@ -192,6 +224,8 @@ void GameUI::setChatText(const EnrichedString &chat_text, u32 recent_chat_count)
+ 	setStaticText(m_guitext_chat, chat_text);
+ 
+ 	m_recent_chat_count = recent_chat_count;
++	if (m_java_recent_chat)
++		m_java_recent_chat->messages_changed = true;
+ }
+ 
+ void GameUI::updateChatSize()
+@@ -297,6 +331,11 @@ void GameUI::toggleProfiler()
+ 
+ void GameUI::clearText()
+ {
++	if (m_java_recent_chat) {
++		m_java_recent_chat->remove();
++		m_java_recent_chat = nullptr;
++	}
++
+ 	if (m_guitext_chat) {
+ 		m_guitext_chat->remove();
+ 		m_guitext_chat = nullptr;
+diff --git a/src/client/gameui.h b/src/client/gameui.h
+index d64c598..b7060e1 100644
+--- a/src/client/gameui.h
++++ b/src/client/gameui.h
+@@ -15,6 +15,7 @@
+ class Client;
+ class EnrichedString;
+ class GUIChatConsole;
++class GUIJavaRecentChat;
+ struct MapDrawControl;
+ struct PointedThing;
+ 
+@@ -51,7 +52,7 @@ public:
+ 	void init();
+ 	void update(const RunStats &stats, Client *client, MapDrawControl *draw_control,
+ 			const CameraOrientation &cam, const PointedThing &pointed_old,
+-			const GUIChatConsole *chat_console, float dtime);
++			GUIChatConsole *chat_console, float dtime);
+ 
+ 	void initFlags();
+ 	const Flags &getFlags() const { return m_flags; }
+@@ -100,6 +101,7 @@ private:
+ 	std::unique_ptr<StatusTextHelper> m_status_text = nullptr;
+ 
+ 	gui::IGUIStaticText *m_guitext_chat = nullptr; // Chat text
++	GUIJavaRecentChat *m_java_recent_chat = nullptr;
+ 	u32 m_recent_chat_count = 0;
+ 	core::rect<s32> m_current_chat_size{0, 0, 0, 0};
+ 
+diff --git a/src/client/hud.cpp b/src/client/hud.cpp
+index 3bcde6f..acbd495 100644
+--- a/src/client/hud.cpp
++++ b/src/client/hud.cpp
+@@ -346,9 +346,10 @@ void Hud::drawLuaElements(const v3s16 &camera_offset, bool only_unhidable)
+ 
+ 	std::vector<HudElement*> elems;
+ 
++	const bool java_debug = g_settings->getBool("mcl_java_ui");
+ 	elems.reserve(player->hud.getElements().size() + player->csm_hud.getElements().size());
+ 	for (auto const &e : player->hud.getElements()) {
+-		if (e)
++		if (e && (!java_debug || e->name.rfind("mcl_info:coordinates:", 0) != 0))
+ 			elems.push_back(e.get());
+ 	}
+ 	for (auto const &e : player->csm_hud.getElements()) {
+diff --git a/src/client/java_debug.cpp b/src/client/java_debug.cpp
+new file mode 100644
+index 0000000..4205631
+--- /dev/null
++++ b/src/client/java_debug.cpp
+@@ -0,0 +1,154 @@
++// SPDX-License-Identifier: LGPL-2.1-or-later
++#include "java_debug.h"
++
++#include <algorithm>
++#include <cmath>
++#include <iomanip>
++#include <locale>
++#include <sstream>
++#include <vector>
++#include <IGUIFont.h>
++#include <IVideoDriver.h>
++#include "client.h"
++#include "clientmap.h"
++#include "fontengine.h"
++#include "hud_element.h"
++#include "localplayer.h"
++#include "nodedef.h"
++#include "renderingengine.h"
++#include "settings.h"
++#include "util/numeric.h"
++#include "util/pointedthing.h"
++#include "version.h"
++
++namespace {
++
++struct Dimension {
++	const char *name = nullptr;
++	int offset = 0;
++};
++
++// The server sends its exact dimension boundaries as HUD metadata. Mineclonia
++// worlds created with different generators have different vertical origins.
++Dimension getDimension(const LocalPlayer &player, double y)
++{
++	for (const auto &element : player.hud.getElements()) {
++		if (!element || element->name != "mcl_info:java_debug_bounds_v1")
++			continue;
++		int overworld_min, overworld_origin, nether_min, nether_max, end_min, end_max;
++		std::istringstream bounds(element->text);
++		if (!(bounds >> overworld_min >> overworld_origin >>
++				nether_min >> nether_max >> end_min >> end_max))
++			break;
++		if (y >= overworld_min)
++			return {"minecraft:overworld", overworld_origin};
++		if (y >= nether_min && y <= nether_max)
++			return {"minecraft:the_nether", nether_min};
++		if (y >= end_min && y <= end_max)
++			return {"minecraft:the_end", end_min};
++		return {"Mineclonia void", 0};
++	}
++	return {};
++}
++
++std::string blockPosition(int x, int y, int z)
++{
++	return std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z);
++}
++
++void drawLines(video::IVideoDriver &driver, gui::IGUIFont &font,
++		const std::vector<std::string> &lines, int scale, bool right)
++{
++	const v2u32 screen = driver.getScreenSize();
++	const int padding = 2 * scale;
++	const int line_height = 9 * scale;
++	int y = padding;
++	for (const auto &line : lines) {
++		if (y + line_height > static_cast<int>(screen.Y))
++			break;
++		if (!line.empty()) {
++			std::wstring text = utf8_to_wide(line);
++			const int width = font.getDimension(text.c_str()).Width;
++			const int x = right ? static_cast<int>(screen.X) - padding - width : padding;
++			if (!right || x >= static_cast<int>(screen.X) / 2) {
++				driver.draw2DRectangle(video::SColor(0x90505050),
++						core::rect<s32>(x - scale, y - scale, x + width + scale, y + line_height - scale));
++				font.draw(text.c_str(), core::rect<s32>(x, y, x + width, y + line_height),
++						video::SColor(0xFFE0E0E0));
++			}
++		}
++		y += line_height;
++	}
++}
++
++} // namespace
++
++void drawJavaDebugOverlay(Client &client, video::IVideoDriver &driver,
++		const PointedThing &pointed, float average_frame_time)
++{
++	const v2u32 screen = driver.getScreenSize();
++	// Debug GUI scale Auto uses a smaller integer scale than the main GUI.
++	const int scale = std::max(1, static_cast<int>(std::min(screen.X / 320, screen.Y / 240)) / 2);
++	const float density = RenderingEngine::getDisplayDensity() *
++			g_settings->getFloat("gui_scaling", 0.5f, 20.0f);
++	FontSpec font_spec(std::max(1, static_cast<int>(std::lround(9 * scale / density))),
++			FM_Standard, false, false);
++	font_spec.allow_server_media = false;
++	auto *font = g_fontengine->getFont(font_spec);
++
++	const auto &player = *client.getEnv().getLocalPlayer();
++	const int fps = average_frame_time > 0.0f ? std::lround(1.0f / average_frame_time) : 0;
++	std::vector<std::string> left = {
++		std::string("Mineclonia (Luanti ") + g_version_hash + ")",
++		std::to_string(fps) + " fps",
++		"",
++	};
++	std::vector<std::string> right = {
++		"Display: " + std::to_string(screen.X) + "x" + std::to_string(screen.Y) +
++				" (" + driver.getVendorInfo().c_str() + ")",
++		driver.getName(),
++	};
++	if (client.checkPrivilege("debug") || (player.hud_flags & HUD_FLAG_BASIC_DEBUG)) {
++		const v3f pos = player.getPosition() / BS;
++		const Dimension dimension = getDimension(player, pos.Y + 0.5);
++		const double x = pos.X + 0.5;
++		const double y = pos.Y + 0.5 - dimension.offset;
++		const double z = 0.5 - pos.Z;
++		const int bx = std::floor(x), by = std::floor(y), bz = std::floor(z);
++		std::ostringstream xyz;
++		xyz.imbue(std::locale::classic());
++		xyz << "XYZ: " << std::fixed << std::setprecision(3) << x << " / "
++				<< std::setprecision(5) << y << " / " << std::setprecision(3) << z;
++		left.emplace_back(xyz.str());
++		left.emplace_back("Block: " + blockPosition(bx, by, bz));
++		left.emplace_back("Chunk: " + blockPosition(std::floor(bx / 16.0),
++				std::floor(by / 16.0), std::floor(bz / 16.0)));
++
++		const double rotation = wrapDegrees_0_360(-player.getYaw());
++		const double yaw = rotation - 180.0;
++		const char *const directions[] = {"north", "east", "south", "west"};
++		const char *const axes[] = {"negative Z", "positive X", "positive Z", "negative X"};
++		const int direction = static_cast<int>(std::floor(rotation / 90.0 + 0.5)) % 4;
++		std::ostringstream facing;
++		facing.imbue(std::locale::classic());
++		facing << "Facing: " << directions[direction] << " (Towards " << axes[direction] << ") ("
++				<< std::fixed << std::setprecision(1) << yaw << " / " << player.getPitch() << ")";
++		left.emplace_back(facing.str());
++		if (dimension.name)
++			left.emplace_back(dimension.name);
++
++		if (pointed.type == POINTEDTHING_NODE) {
++			const v3s16 p = pointed.node_undersurface;
++			const MapNode node = client.getEnv().getClientMap().getNode(p);
++			if (node.getContent() != CONTENT_IGNORE) {
++				right.emplace_back();
++				right.emplace_back("Targeted Block: " + blockPosition(p.X,
++						p.Y - getDimension(player, p.Y).offset, -p.Z));
++				right.emplace_back(client.getNodeDefManager()->get(node).name);
++			}
++		}
++	}
++
++	drawLines(driver, *font, left, scale, false);
++	drawLines(driver, *font, right, scale, true);
++}
+diff --git a/src/client/java_debug.h b/src/client/java_debug.h
+new file mode 100644
+index 0000000..24544dd
+--- /dev/null
++++ b/src/client/java_debug.h
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: LGPL-2.1-or-later
++#pragma once
++
++class Client;
++struct PointedThing;
++namespace video {
++class IVideoDriver;
++}
++
++void drawJavaDebugOverlay(Client &client, video::IVideoDriver &driver,
++		const PointedThing &pointed, float average_frame_time);
+diff --git a/src/client/render/plain.cpp b/src/client/render/plain.cpp
+index 961f900..332f81c 100644
+--- a/src/client/render/plain.cpp
++++ b/src/client/render/plain.cpp
+@@ -5,14 +5,19 @@
+ 
+ #include "plain.h"
+ #include "secondstage.h"
++#include "exceptions.h"
++#include "log.h"
+ #include "settings.h"
+ #include "client/camera.h"
+ #include "client/client.h"
+ #include "client/clientmap.h"
+ #include "client/hud.h"
+ #include "client/minimap.h"
++#include "client/shader.h"
+ #include "client/shadows/dynamicshadowsrender.h"
++#include "gui/mainmenumanager.h"
+ #include <IGUIEnvironment.h>
++#include <string_view>
+ 
+ /// Draw3D pipeline step
+ void Draw3D::run(PipelineContext &context)
+@@ -37,6 +42,89 @@ void DrawWield::run(PipelineContext &context)
+ 		context.client->getCamera()->drawWieldedTool();
+ }
+ 
++namespace {
++// Run the five-pixel box filter three times in each direction, as the
++// Java menu does. The HUD is already drawn and the modal is still sharp.
++class JavaPauseBlur final : public TrivialRenderStep
++{
++public:
++	JavaPauseBlur(u32 horizontal, u32 vertical) :
++		m_original(&m_buffer, 0), m_filtered(&m_buffer, 1),
++		m_horizontal(horizontal, {0}), m_vertical(vertical, {1})
++	{
++		m_buffer.setTexture(0, v2f(1.0f), "mcl_pause_scene", video::ECF_A8R8G8B8);
++		m_buffer.setTexture(1, v2f(1.0f), "mcl_pause_filtered", video::ECF_A8R8G8B8);
++		m_horizontal.setRenderSource(&m_buffer);
++		m_horizontal.setRenderTarget(&m_filtered);
++		m_horizontal.setBilinearFilter(0, true);
++		m_vertical.setRenderSource(&m_buffer);
++		m_vertical.setBilinearFilter(0, true);
++	}
++
++	void run(PipelineContext &context) override
++	{
++		m_buffer.reset(context);
++		if (!m_buffer.getTexture(0) || !m_buffer.getTexture(1))
++			return;
++		m_original.reset(context);
++		m_filtered.reset(context);
++		m_screen.reset(context);
++
++		auto *driver = context.device->getVideoDriver();
++		auto *scene = m_original.getIrrRenderTarget(context);
++		if (!scene)
++			return;
++		// With a null source OpenGL3 reads the default framebuffer's colour.
++		driver->blitRenderTarget(nullptr, scene);
++
++		for (int pass = 0; pass < 3; ++pass) {
++			m_horizontal.run(context);
++			RenderTarget *destination = pass == 2 ?
++				static_cast<RenderTarget *>(&m_screen) : &m_original;
++			m_vertical.setRenderTarget(destination);
++			m_vertical.run(context);
++		}
++	}
++
++private:
++	TextureBuffer m_buffer;
++	TextureBufferOutput m_original;
++	TextureBufferOutput m_filtered;
++	ScreenTarget m_screen;
++	PostProcessingStep m_horizontal;
++	PostProcessingStep m_vertical;
++};
++} // namespace
++
++void DrawHUD::drawJavaPauseBackdrop(PipelineContext &context)
++{
++	auto *menu = g_menumgr.tryGetTopMenu();
++	if (!menu || !menu->pausesGame() || !menu->getName() ||
++			std::string_view(menu->getName()) != "mcl_java_pause")
++		return;
++	auto *driver = context.device->getVideoDriver();
++	if (driver->getDriverType() != video::EDT_OPENGL3 || g_settings->get("3d_mode") != "none")
++		return;
++
++	if (!m_java_pause_blur_checked) {
++		m_java_pause_blur_checked = true;
++		auto *shaders = context.client->getShaderSource();
++		try {
++			const u32 horizontal = shaders->getShaderRaw("mcl_pause_blur_h");
++			const u32 vertical = shaders->getShaderRaw("mcl_pause_blur_v");
++			const auto h_material = shaders->getShaderInfo(horizontal).material;
++			const auto v_material = shaders->getShaderInfo(vertical).material;
++			if (h_material != video::EMT_INVALID && h_material >= video::numBuiltInMaterials &&
++					v_material != video::EMT_INVALID && v_material >= video::numBuiltInMaterials)
++				m_java_pause_blur = std::make_unique<JavaPauseBlur>(horizontal, vertical);
++		} catch (const ShaderException &e) {
++			warningstream << "Java pause background blur unavailable: " << e.what() << std::endl;
++		}
++	}
++	if (m_java_pause_blur)
++		m_java_pause_blur->run(context);
++}
++
+ void DrawHUD::run(PipelineContext &context)
+ {
+ 	if (context.show_hud) {
+@@ -55,6 +143,7 @@ void DrawHUD::run(PipelineContext &context)
+ 		context.client->getCamera()->drawNametags();
+ 	}
+ 
++	drawJavaPauseBackdrop(context);
+ 	context.device->getGUIEnvironment()->drawAll();
+ }
+ 
+diff --git a/src/client/render/plain.h b/src/client/render/plain.h
+index b0ce296..788a65e 100644
+--- a/src/client/render/plain.h
++++ b/src/client/render/plain.h
+@@ -47,6 +47,11 @@ public:
+ 
+ 	virtual void reset(PipelineContext &context) override {}
+ 	virtual void run(PipelineContext &context) override;
++
++private:
++	void drawJavaPauseBackdrop(PipelineContext &context);
++	std::unique_ptr<RenderStep> m_java_pause_blur;
++	bool m_java_pause_blur_checked = false;
+ };
+ 
+ class MapPostFxStep : public TrivialRenderStep
+diff --git a/src/client/renderingengine.cpp b/src/client/renderingengine.cpp
+index 8b5f981..e8a7b18 100644
+--- a/src/client/renderingengine.cpp
++++ b/src/client/renderingengine.cpp
+@@ -3,12 +3,17 @@
+ // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
+ // Copyright (C) 2017 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
+ 
++#include <array>
++#include <cmath>
+ #include <optional>
+ #include <irrlicht.h>
+ #include "IMeshCache.h"
+ #include "fontengine.h"
+ #include "client.h"
+ #include "clouds.h"
++#include "gui/guiButton.h"
++#include "gui/mainmenumanager.h"
++#include "mapblock.h"
+ #include "util/numeric.h"
+ #include "guiscalingfilter.h"
+ #include "localplayer.h"
+@@ -227,6 +232,7 @@ RenderingEngine::~RenderingEngine()
+ 
+ 	g_settings->deregisterAllChangedCallbacks(this);
+ 
++	clear_java_loading_controls();
+ 	core.reset();
+ 	m_device->closeDevice();
+ 	m_device->drop();
+@@ -284,6 +290,223 @@ bool RenderingEngine::setWindowIcon()
+ 	return m_device->setWindowIcon(img.get());
+ }
+ 
++namespace {
++
++constexpr s32 JAVA_TERRAIN_RADIUS = 17;
++
++s32 java_loading_scale(v2s32 size)
++{
++	// Java's automatic GUI scale preserves a 320×240 logical viewport.
++	const s32 max_scale = std::max<s32>(1, std::min(size.X / 320, size.Y / 240));
++	const float preferred_scale = g_settings->getFloat("gui_scaling", 0.5f, 20.0f);
++	return rangelim((s32)std::lround(max_scale * preferred_scale), 1, max_scale);
++}
++
++s32 java_loading_font_size(s32 scale)
++{
++	const float density = RenderingEngine::getDisplayDensity() *
++			g_settings->getFloat("gui_scaling");
++	return std::max<s32>(1, std::lround(10 * scale / density));
++}
++
++class JavaLoadingControls final : public GUIModalMenu
++{
++public:
++	JavaLoadingControls(gui::IGUIEnvironment *environment, ITextureSource *textures,
++			bool &cancel) :
++		GUIModalMenu(environment, environment->getRootGUIElement(), -1, &g_menumgr, false),
++		m_textures(textures),
++		m_cancel(cancel)
++	{
++	}
++
++	void regenerateGui(v2u32 screensize) override
++	{
++		removeAllChildren();
++		const v2s32 size(screensize.X, screensize.Y);
++		DesiredRect = core::rect<s32>(v2s32(0, 0), size);
++		recalculateAbsolutePosition(false);
++
++		const s32 scale = java_loading_scale(size);
++		const s32 width = std::min(200 * scale, size.X);
++		const s32 height = std::min(20 * scale, size.Y);
++		const s32 x = std::max(0, size.X / scale / 2 * scale - width / 2);
++		const s32 y = std::min((size.Y / scale / 4 + 132) * scale, size.Y - height);
++		auto *button = GUIButton::addButton(Environment,
++				core::rect<s32>(x, y, x + width, y + height), m_textures, this,
++				ID_CANCEL, wstrgettext("Cancel").c_str());
++		std::array<StyleSpec, StyleSpec::NUM_STATES> styles{};
++		auto &base = styles[StyleSpec::STATE_DEFAULT];
++		base.set(StyleSpec::FONT, "_no_server_media");
++		base.set(StyleSpec::FONT_SIZE, std::to_string(java_loading_font_size(scale)));
++		if (m_textures && m_textures->isKnownSourceImage("mcl_options_button.png")) {
++			base.set(StyleSpec::BORDER, "false");
++			base.set(StyleSpec::BGIMG, "mcl_options_button.png");
++			const auto image_size = m_textures->getTextureDimensions("mcl_options_button.png");
++			if (image_size.Width != 200 || image_size.Height != 20)
++				base.set(StyleSpec::BGIMG_MIDDLE, "3");
++			base.set(StyleSpec::TEXTCOLOR, "#FFFFFF");
++			if (m_textures->isKnownSourceImage("mcl_options_button_highlighted.png")) {
++				for (auto state : {StyleSpec::STATE_FOCUSED, StyleSpec::STATE_HOVERED,
++						StyleSpec::STATE_PRESSED})
++					styles[state].set(StyleSpec::BGIMG, "mcl_options_button_highlighted.png");
++			}
++		}
++		button->setStyles(styles);
++	}
++
++	void drawMenu() override { gui::IGUIElement::draw(); }
++	bool OnEvent(const SEvent &event) override
++	{
++		if ((event.EventType == EET_GUI_EVENT &&
++				event.GUIEvent.EventType == gui::EGET_BUTTON_CLICKED &&
++				event.GUIEvent.Caller->getID() == ID_CANCEL) ||
++				(event.EventType == EET_KEY_INPUT_EVENT &&
++						event.KeyInput.Key == KEY_ESCAPE && event.KeyInput.PressedDown)) {
++			m_cancel = true;
++			return true;
++		}
++		return false;
++	}
++
++protected:
++	std::wstring getLabelByID(s32) override { return {}; }
++	std::string getNameByID(s32) override { return {}; }
++
++private:
++	static constexpr s32 ID_CANCEL = 256;
++	ITextureSource *m_textures;
++	bool &m_cancel;
++};
++
++void draw_java_loading_panorama(video::IVideoDriver *driver, ITextureSource *tsrc,
++		const core::rect<s32> &screen)
++{
++	if (!tsrc || !screen.getArea())
++		return;
++	const char *name = "mcl_menu_panorama.png";
++	if (!tsrc->isKnownSourceImage(name))
++		name = "mcl_java_loading_panorama.png";
++	if (!tsrc->isKnownSourceImage(name))
++		return;
++	auto *texture = tsrc->getTexture(name);
++	if (!texture)
++		return;
++	const auto texture_size = texture->getSize();
++	if (texture_size.Width < 2 || texture_size.Height < 2)
++		return;
++
++	// Fill the window without distorting the artwork.
++	const float aspect = (float)screen.getWidth() / screen.getHeight();
++	const s32 crop_w = std::min<s32>(texture_size.Width, texture_size.Height * aspect);
++	const s32 crop_h = std::min<s32>(texture_size.Height, texture_size.Width / aspect);
++	const s32 x = ((s32)texture_size.Width - crop_w) / 2;
++	const s32 y = ((s32)texture_size.Height - crop_h) / 2;
++	draw2DImageFilterScaled(driver, texture, screen, {x, y, x + crop_w, y + crop_h});
++	driver->draw2DRectangle(video::SColor(64, 0, 0, 0), screen);
++}
++
++void draw_java_loading_map(video::IVideoDriver *driver, Client &client,
++		v2s32 center, s32 scale)
++{
++	auto &environment = client.getEnv();
++	auto &map = environment.getClientMap();
++	const auto *player = environment.getLocalPlayer();
++	const v3s16 origin = getContainerPos(floatToInt(player->getPosition(), BS), MAP_BLOCKSIZE);
++	constexpr s32 diameter = JAVA_TERRAIN_RADIUS * 2 + 1;
++	const s32 size = 2 * scale;
++	const v2s32 start = center - v2s32(diameter * size / 2, diameter * size / 2);
++	driver->draw2DRectangle(video::SColor(0xff000000),
++			core::rect<s32>(start, start + v2s32(diameter * size, diameter * size)));
++	for (s32 row = 0; row < diameter; ++row) {
++		for (s32 column = 0; column < diameter; ++column) {
++			// Java south is +Z and Luanti north is +Z.
++			const v3s16 pos(origin.X + column - JAVA_TERRAIN_RADIUS, origin.Y,
++					origin.Z - row + JAVA_TERRAIN_RADIUS);
++			auto *block = map.getBlockNoCreateNoEx(pos);
++			if (!block || (!block->mesh && !block->isGenerated()))
++				continue;
++			const u32 colour = block->mesh ? 0xffffffff : 0xff303572;
++			const v2s32 cell_start = start + v2s32(column * size, row * size);
++			driver->draw2DRectangle(video::SColor(colour),
++					core::rect<s32>(cell_start, cell_start + v2s32(size, size)));
++		}
++	}
++}
++
++} // namespace
++
++void RenderingEngine::clear_java_loading_controls()
++{
++	if (m_java_loading_controls && m_java_loading_controls->getParent())
++		m_java_loading_controls->quitMenu();
++	m_java_loading_controls.reset();
++	m_java_loading_cancel = false;
++}
++
++void RenderingEngine::draw_java_load_screen(const std::wstring &text, gui::IGUIEnvironment *guienv,
++		ITextureSource *tsrc, int percent, const std::wstring &bottom_text,
++		LoadingScreenStyle style, Client *level)
++{
++	auto *driver = get_video_driver();
++	const auto size_unsigned = driver->getScreenSize();
++	const v2s32 size(size_unsigned.Width, size_unsigned.Height);
++	const core::rect<s32> screen(v2s32(0, 0), size);
++	const s32 scale = java_loading_scale(size);
++	const v2s32 center = size / scale / 2 * scale;
++
++	if (style == LoadingScreenStyle::Connecting) {
++		if (!m_java_loading_controls)
++			m_java_loading_controls.reset(new JavaLoadingControls(guienv, tsrc, m_java_loading_cancel));
++	} else {
++		clear_java_loading_controls();
++	}
++
++	driver->beginScene(true, true, video::SColor(255, 25, 23, 29));
++	draw_java_loading_panorama(driver, tsrc, screen);
++
++	const bool have_terrain = style == LoadingScreenStyle::Terrain &&
++			level && level->getEnv().getLocalPlayer();
++	FontSpec font_spec(java_loading_font_size(scale), FM_Standard, false, false);
++	font_spec.allow_server_media = false;
++	auto *font = g_fontengine->getFont(font_spec);
++	const s32 line_height = g_fontengine->getLineHeight(font_spec);
++	s32 text_y = center.Y - line_height / 2;
++	if (have_terrain) {
++		draw_java_loading_map(driver, *level, center, scale);
++		text_y = center.Y - (JAVA_TERRAIN_RADIUS * 2 + 27) * scale;
++	} else if (style == LoadingScreenStyle::Connecting ||
++			style == LoadingScreenStyle::Terrain || style == LoadingScreenStyle::Resources) {
++		text_y = center.Y - 50 * scale;
++	}
++	text_y = std::max(text_y, 2 * scale);
++
++	font->draw(text.c_str(), core::rect<s32>(0, text_y, center.X * 2, text_y + line_height),
++			video::SColor(0xffffffff), true, false, &screen);
++
++	const bool show_progress = (style == LoadingScreenStyle::Terrain ||
++			style == LoadingScreenStyle::Resources) && percent >= 0 && percent <= 100;
++	const s32 bar_y = text_y + std::max(12 * scale, line_height + 3 * scale);
++	if (show_progress) {
++		const s32 width = std::min(200 * scale, size.X);
++		const s32 x = std::max(0, center.X - width / 2);
++		driver->draw2DRectangle(video::SColor(0xff000000),
++				core::rect<s32>(x, bar_y, x + width, bar_y + 2 * scale));
++		const s32 fill_width = (width * percent + 50) / 100;
++		if (fill_width > 0)
++			driver->draw2DRectangle(video::SColor(0xff00ff00),
++					core::rect<s32>(x, bar_y, x + fill_width, bar_y + 2 * scale));
++	}
++
++	if (!bottom_text.empty()) {
++		const s32 details_y = bar_y + 8 * scale;
++		font->draw(bottom_text.c_str(), core::rect<s32>(0, details_y, center.X * 2, size.Y),
++				video::SColor(0xffe0e0e0), true, false, &screen);
++	}
++	guienv->drawAll();
++	driver->endScene();
++}
++
+ /*
+ 	Draws a screen with a single text on it.
+ 	Text will be removed when the screen is drawn the next time.
+@@ -291,8 +514,15 @@ bool RenderingEngine::setWindowIcon()
+ */
+ void RenderingEngine::draw_load_screen(const std::wstring &text,
+ 		gui::IGUIEnvironment *guienv, ITextureSource *tsrc, float dtime,
+-		int percent, float *indef_pos, const std::wstring &bottom_text)
++		int percent, float *indef_pos, const std::wstring &bottom_text,
++		LoadingScreenStyle style, Client *level)
+ {
++	if (g_settings->getBool("mcl_java_ui")) {
++		draw_java_load_screen(text, guienv, tsrc, percent, bottom_text, style, level);
++		return;
++	}
++	clear_java_loading_controls();
++
+ 	v2u32 screensize = getWindowSize();
+ 
+ 	v2s32 textsize(g_fontengine->getTextWidth(text), g_fontengine->getLineHeight());
+diff --git a/src/client/renderingengine.h b/src/client/renderingengine.h
+index cd3b920..0b603fc 100644
+--- a/src/client/renderingengine.h
++++ b/src/client/renderingengine.h
+@@ -11,6 +11,7 @@
+ #include "client/inputhandler.h"
+ #include "debug.h"
+ #include "config.h"
++#include "irr_ptr.h"
+ #include "client/shader.h"
+ #include "client/render/core.h"
+ // include the shadow mapper classes too
+@@ -29,6 +30,15 @@ struct VideoDriverInfo {
+ class ITextureSource;
+ class Client;
+ class Hud;
++class GUIModalMenu;
++
++enum class LoadingScreenStyle {
++	Message,
++	Connecting,
++	Resources,
++	Terrain,
++	Saving,
++};
+ 
+ class RenderingCore;
+ 
+@@ -126,7 +136,12 @@ public:
+ 	void draw_load_screen(const std::wstring &text,
+ 			gui::IGUIEnvironment *guienv, ITextureSource *tsrc,
+ 			float dtime = 0, int percent = 0, float *indef_pos = nullptr,
+-			const std::wstring &bottom_text = {});
++			const std::wstring &bottom_text = {},
++			LoadingScreenStyle style = LoadingScreenStyle::Message,
++			Client *level = nullptr);
++
++	bool java_load_cancel_requested() const { return m_java_loading_cancel; }
++	void clear_java_loading_controls();
+ 
+ 	void draw_scene(video::SColor skycolor, bool show_hud,
+ 			bool draw_wield_tool, bool draw_crosshair);
+@@ -162,6 +177,12 @@ public:
+ 	video::SColor m_menu_clouds_color = video::SColor(255, 240, 240, 255);
+ 
+ private:
++	void draw_java_load_screen(const std::wstring &text, gui::IGUIEnvironment *guienv,
++			ITextureSource *tsrc, int percent, const std::wstring &bottom_text,
++			LoadingScreenStyle style, Client *level);
++	bool m_java_loading_cancel = false;
++	irr_ptr<GUIModalMenu> m_java_loading_controls;
++
+ 	static void settingChangedCallback(const std::string &name, void *data);
+ 	v2u32 _getWindowSize() const;
+ 
+diff --git a/src/defaultsettings.cpp b/src/defaultsettings.cpp
+index d0e0562..b993878 100644
+--- a/src/defaultsettings.cpp
++++ b/src/defaultsettings.cpp
+@@ -284,6 +284,7 @@ void set_default_settings()
+ 	settings->setDefault("soft_clouds", "false");
+ 	settings->setDefault("cloud_radius", "12");
+ 	settings->setDefault("menu_clouds", "true");
++	settings->setDefault("mcl_java_ui", "false");
+ 	settings->setDefault("menu_theme", "light");
+ 	settings->setDefault("translucent_liquids", "true");
+ 	settings->setDefault("console_height", "0.6");
+diff --git a/src/gui/guiChatConsole.cpp b/src/gui/guiChatConsole.cpp
+index 726b3fa..15dab2c 100644
+--- a/src/gui/guiChatConsole.cpp
++++ b/src/gui/guiChatConsole.cpp
+@@ -10,19 +10,56 @@
+ #include "porting.h"
+ #include "client/texturesource.h"
+ #include "client/fontengine.h"
++#include "client/renderingengine.h"
+ #include "log.h"
+ #include "gettext.h"
+ #include "irrlicht_changes/CGUITTFont.h"
+ #include "util/string.h"
+ #include "guiScrollBar.h"
++#include "touchcontrols.h"
+ #include <IOSOperator.h>
+ #include <IVideoDriver.h>
++#include <algorithm>
+ #include <string>
+ 
+ /// Scrollbars use integers, hence give enough room to interpolate for smooth scrolling.
+ static constexpr s32 SCROLLBAR_SCALE = 128;
+ static constexpr s32 SCROLL_SMALL_STEP = 3;
+ 
++// Java 26.3 uses logical GUI pixels and a 40-pixel margin below the
++// history, separate from the full-width input box.
++struct JavaChatLayout
++{
++	static s32 screenScale(v2u32 screen)
++	{
++		return std::max(1U, std::min(screen.X / 320, screen.Y / 240));
++	}
++
++	JavaChatLayout(v2u32 screen, s32 font_height) :
++		scale(screenScale(screen)),
++		width(std::clamp(static_cast<s32>(screen.X) - 12 * scale, 0, 320 * scale)),
++		line_height(std::max(9 * scale, font_height)),
++		bottom(std::max(0, static_cast<s32>(screen.Y) - 31 * scale - line_height)),
++		prompt(2 * scale, static_cast<s32>(screen.Y) - 5 * scale - line_height,
++			static_cast<s32>(screen.X) - 2 * scale, static_cast<s32>(screen.Y) - 2 * scale)
++	{}
++
++	s32 rows(bool focused) const
++	{
++		return std::min((focused ? 180 : 90) * scale, bottom) / line_height;
++	}
++
++	core::recti rowBounds(s32 y) const
++	{
++		return core::recti(0, y, width + 12 * scale, y + line_height);
++	}
++
++	s32 scale;
++	s32 width;
++	s32 line_height;
++	s32 bottom;
++	core::recti prompt;
++};
+ 
+ inline u32 clamp_u8(s32 value)
+ {
+@@ -99,7 +136,7 @@ GUIChatConsole::GUIChatConsole(
+ 	m_scrollbar->setSmallStep(SCROLLBAR_SCALE * SCROLL_SMALL_STEP);
+ }
+ 
+-void GUIChatConsole::openConsole(f32 scale)
++void GUIChatConsole::openConsole(f32 scale, bool quick_chat)
+ {
+ 	if (m_open)
+ 		return;
+@@ -107,6 +144,13 @@ void GUIChatConsole::openConsole(f32 scale)
+ 	assert(scale > 0.0f && scale <= 1.0f);
+ 
+ 	m_open = true;
++	m_close_on_enter = quick_chat;
++	m_java_chat = quick_chat && usesJavaChat();
++	m_chat_backend->getPrompt().setPrefix(m_java_chat ? L"" : L"]");
++	if (m_java_chat) {
++		m_screensize = Environment->getVideoDriver()->getScreenSize();
++		m_chat_backend->getConsoleBuffer().scrollBottom();
++	}
+ 
+ 	m_desired_height_fraction = scale;
+ 	m_desired_height = scale * m_screensize.Y;
+@@ -131,6 +175,10 @@ void GUIChatConsole::closeConsole()
+ 	m_open = false;
+ 	m_menumgr->deletingMenu(this);
+ 	m_scrollbar->setVisible(false);
++	if (m_java_chat) {
++		m_height = 0;
++		recalculateConsolePosition();
++	}
+ }
+ 
+ void GUIChatConsole::closeConsoleAtOnce()
+@@ -181,6 +229,18 @@ void GUIChatConsole::draw()
+ 
+ 	// Check screen size
+ 	v2u32 screensize = driver->getScreenSize();
++	if (m_java_chat) {
++		if (screensize != m_screensize) {
++			m_screensize = screensize;
++			reformatConsole();
++		}
++		const u64 now = porting::getTimeMs();
++		animate(now - m_animate_time_old);
++		m_animate_time_old = now;
++		if (m_open)
++			drawJavaChat();
++		return;
++	}
+ 	if (screensize != m_screensize)
+ 	{
+ 		// screen size has changed
+@@ -214,6 +274,19 @@ void GUIChatConsole::draw()
+ 
+ void GUIChatConsole::reformatConsole()
+ {
++	if (m_java_chat) {
++		prepareJavaFont(JavaChatLayout::screenScale(m_screensize));
++		const JavaChatLayout layout(m_screensize, m_java_font_height);
++		m_desired_height = m_screensize.Y;
++		m_height = m_open ? m_screensize.Y : 0;
++		recalculateConsolePosition();
++		m_scrollbar->setVisible(false);
++		m_chat_backend->reformat(layout.width / m_java_glyph_width, layout.rows(true));
++		const s32 prompt_width = layout.prompt.getWidth() - 4 * layout.scale;
++		m_chat_backend->getPrompt().reformat(std::max(0, prompt_width) / m_java_glyph_width);
++		return;
++	}
++
+ 	s32 cols = m_screensize.X / m_fontsize.X - 2; // make room for a margin (looks better)
+ 	s32 rows = m_desired_height / m_fontsize.Y - 1; // make room for the input prompt
+ 	if (cols <= 0 || rows <= 0)
+@@ -232,6 +305,147 @@ void GUIChatConsole::recalculateConsolePosition()
+ 	recalculateAbsolutePosition(false);
+ }
+ 
++bool GUIChatConsole::usesJavaChat() const
++{
++	return g_settings->getBool("mcl_java_ui") && !g_touchcontrols;
++}
++
++void GUIChatConsole::prepareJavaFont(s32 scale)
++{
++	if (m_java_font && m_java_font_scale == scale)
++		return;
++
++	const f32 density = RenderingEngine::getDisplayDensity() *
++			g_settings->getFloat("gui_scaling", 0.5f, 20.0f);
++	const u16 configured = g_settings->getU16("chat_font_size");
++	const s32 size = configured != 0 ? rangelim(configured, 5, 72) :
++			std::max(1, myround(9 * scale / density));
++	m_java_font.grab(g_fontengine->getFont(size, FM_Mono));
++	m_java_glyph_width = std::max(1U, m_java_font->getDimension(L"M").Width);
++	m_java_font_height = configured != 0 ? m_java_font->getDimension(L"Ay").Height : 0;
++	m_java_font_scale = scale;
++}
++
++void GUIChatConsole::drawJavaChatLine(const ChatFormattedLine &line,
++		const core::recti &row, s32 scale, float fade)
++{
++	if (line.fragments.empty())
++		return;
++
++	auto *driver = Environment->getVideoDriver();
++	driver->draw2DRectangle(video::SColor(127 * fade, 0, 0, 0), row);
++	for (const ChatFormattedFragment &fragment : line.fragments) {
++		const s32 x = 4 * scale + fragment.column * m_java_glyph_width;
++		const core::recti dest(v2s32(x, row.UpperLeftCorner.Y), row.LowerRightCorner);
++		if (m_java_font->getType() == gui::EGFT_CUSTOM) {
++			auto *font = static_cast<gui::CGUITTFont *>(m_java_font.get());
++			if (fade == 1.0f) {
++				font->draw(fragment.text, dest, false, false, &row);
++			} else {
++				auto colors = fragment.text.getColors();
++				for (auto &color : colors)
++					color.setAlpha(color.getAlpha() * fade);
++				font->draw(EnrichedString(fragment.text.getString(), colors), dest, false, false, &row);
++			}
++		} else {
++			m_java_font->draw(fragment.text.c_str(), dest,
++					video::SColor(255 * fade, 255, 255, 255), false, false, &row);
++		}
++	}
++}
++
++void GUIChatConsole::drawJavaRecentChat(bool messages_changed)
++{
++	const v2u32 screen = Environment->getVideoDriver()->getScreenSize();
++	prepareJavaFont(JavaChatLayout::screenScale(screen));
++	const JavaChatLayout layout(screen, m_java_font_height);
++	const s32 cols = layout.width / m_java_glyph_width;
++	const auto &buffer = m_chat_backend->getRecentBuffer();
++	if (messages_changed || cols != m_java_recent_columns) {
++		m_java_recent_columns = cols;
++		m_java_recent_rows.clear();
++		std::vector<ChatFormattedLine> formatted;
++		constexpr size_t max_rows = 10;
++		for (u32 index = buffer.getLineCount(); index > 0 && cols > 0 &&
++				m_java_recent_rows.size() < max_rows;) {
++			formatted.clear();
++			buffer.formatChatLine(buffer.getLine(--index), cols, formatted);
++			for (auto line = formatted.rbegin(); line != formatted.rend() &&
++					m_java_recent_rows.size() < max_rows; ++line)
++				m_java_recent_rows.emplace_back(index, std::move(*line));
++		}
++	}
++
++	s32 y = layout.bottom;
++	s32 remaining = layout.rows(false);
++	for (const auto &[index, line] : m_java_recent_rows) {
++		if (remaining <= 0)
++			break;
++		const float opacity = std::clamp(10.0f - buffer.getLine(index).age, 0.0f, 1.0f);
++		const float fade = opacity * opacity;
++		if (255 * fade <= 3)
++			break;
++		y -= layout.line_height;
++		drawJavaChatLine(line, layout.rowBounds(y), layout.scale, fade);
++		--remaining;
++	}
++}
++
++void GUIChatConsole::drawJavaChat()
++{
++	const JavaChatLayout layout(m_screensize, m_java_font_height);
++	auto &buffer = m_chat_backend->getConsoleBuffer();
++	const s32 rows = buffer.getRows();
++	for (s32 row = 0; row < rows; ++row) {
++		const s32 y = layout.bottom - (rows - row) * layout.line_height;
++		drawJavaChatLine(buffer.getFormattedLine(row), layout.rowBounds(y), layout.scale, 1.0f);
++	}
++
++	const s32 range = buffer.getBottomScrollPos() - buffer.getTopScrollPos();
++	if (range > 0 && rows > 0) {
++		const s32 track = rows * layout.line_height;
++		const s32 thumb = std::max(layout.scale, track * rows / (rows + range));
++		const s32 offset = (track - thumb) * (buffer.getScrollPosition() -
++				buffer.getTopScrollPos()) / range;
++		const s32 x = layout.width + 10 * layout.scale;
++		const s32 y = layout.bottom - track + offset;
++		Environment->getVideoDriver()->draw2DRectangle(video::SColor(170, 204, 204, 204),
++				core::recti(x, y, x + 2 * layout.scale, y + thumb));
++	}
++
++	drawJavaPrompt(layout.prompt, layout.scale, layout.line_height);
++}
++
++void GUIChatConsole::drawJavaPrompt(const core::recti &bounds, s32 scale, s32 line_height)
++{
++	if (!bounds.isValid())
++		return;
++	auto *driver = Environment->getVideoDriver();
++	driver->draw2DRectangle(video::SColor(127, 0, 0, 0), bounds);
++
++	const auto &prompt = m_chat_backend->getPrompt();
++	const std::wstring text = prompt.getVisiblePortion();
++	const s32 left = 4 * scale;
++	const s32 top = bounds.UpperLeftCorner.Y + 2 * scale;
++	const s32 bottom = top + line_height;
++	const s32 cursor = std::clamp(prompt.getVisibleCursorPosition(), 0, static_cast<s32>(text.size()));
++	const s32 x = left + m_java_font->getDimension(text.substr(0, cursor).c_str()).Width;
++	const s32 selection_end = std::min(static_cast<s32>(text.size()), cursor + prompt.getCursorLength());
++	if (selection_end > cursor) {
++		const s32 right = left + m_java_font->getDimension(text.substr(0, selection_end).c_str()).Width;
++		driver->draw2DRectangle(video::SColor(255, 0, 0, 255), core::recti(x, top, right, bottom),
++				&bounds);
++	}
++	m_java_font->draw(text.c_str(), core::recti(left, top, bounds.LowerRightCorner.X, bottom),
++			video::SColor(0xffffffff), false, false, &bounds);
++	if ((m_cursor_blink & 0x8000) != 0) {
++		const auto caret = cursor == static_cast<s32>(text.size()) ?
++				core::recti(x, bottom - scale, x + m_java_glyph_width, bottom) :
++				core::recti(x, top, x + scale, bottom);
++		driver->draw2DRectangle(video::SColor(0xffffffff), caret, &bounds);
++	}
++}
++
+ void GUIChatConsole::animate(u32 msec)
+ {
+ 	// animate the console height
+@@ -435,6 +649,9 @@ bool GUIChatConsole::OnEvent(const SEvent& event)
+ 	}
+ 	else if(event.EventType == EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown)
+ 	{
++		if (m_java_chat)
++			m_cursor_blink = 0x8000;
++
+ 		// CTRL down
+ 		if (isInCtrlKeys(event.KeyInput.Key)) {
+ 			m_is_ctrl_down = true;
+@@ -455,6 +672,8 @@ bool GUIChatConsole::OnEvent(const SEvent& event)
+ 				!iswcntrl(event.KeyInput.Char) && !IS_PRIVATE_USE_CHAR(event.KeyInput.Char);
+ 
+ 		if (event.KeyInput.Key == KEY_ESCAPE) {
++			if (m_java_chat)
++				prompt.clear();
+ 			closeConsoleAtOnce();
+ 			m_close_on_enter = false;
+ 			// inhibit open so the_game doesn't reopen immediately
+@@ -679,13 +898,40 @@ bool GUIChatConsole::OnEvent(const SEvent& event)
+ 			s32 rows = myround(-SCROLL_SMALL_STEP * event.MouseInput.Wheel);
+ 			m_chat_backend->scroll(rows);
+ 		}
++		else if (m_java_chat && event.MouseInput.Event == EMIE_LMOUSE_PRESSED_DOWN && !m_is_ctrl_down)
++		{
++			const JavaChatLayout layout(m_screensize, m_java_font_height);
++			if (layout.prompt.isPointInside(v2s32(event.MouseInput.X, event.MouseInput.Y))) {
++				prompt.moveCursorToVisibleColumn(std::max(0,
++						event.MouseInput.X - 4 * layout.scale + m_java_glyph_width / 2) /
++						m_java_glyph_width);
++				return true;
++			}
++		}
+ 		// Middle click or ctrl-click opens weblink, if enabled in config
+ 		// Otherwise, middle click pastes primary selection
+ 		else if (event.MouseInput.Event == EMIE_MMOUSE_PRESSED_DOWN ||
+ 				(event.MouseInput.Event == EMIE_LMOUSE_PRESSED_DOWN && m_is_ctrl_down))
+ 		{
+ 			// If clicked within console output region
+-			if (event.MouseInput.Y / m_fontsize.Y < (m_height / m_fontsize.Y) - 1 )
++			if (m_java_chat) {
++				const JavaChatLayout layout(m_screensize, m_java_font_height);
++				const s32 y = event.MouseInput.Y;
++				const s32 x = event.MouseInput.X;
++				const s32 rows = m_chat_backend->getConsoleBuffer().getRows();
++				const s32 first_y = layout.bottom - rows * layout.line_height;
++				if (y >= first_y && y < layout.bottom && x >= 4 * layout.scale &&
++						x < layout.width + 4 * layout.scale && m_cache_clickable_chat_weblinks &&
++						weblinkClick((x - 4 * layout.scale) / m_java_glyph_width + 1,
++								(y - first_y) / layout.line_height))
++					return true;
++				if (event.MouseInput.Event == EMIE_MMOUSE_PRESSED_DOWN) {
++					const c8 *text = Environment->getOSOperator()->getTextFromPrimarySelection();
++					if (text)
++						prompt.input(utf8_to_wide(text));
++				}
++			}
++			else if (event.MouseInput.Y / m_fontsize.Y < (m_height / m_fontsize.Y) - 1 )
+ 			{
+ 				// Translate pixel position to font position
+ 				bool was_url_pressed = m_cache_clickable_chat_weblinks &&
+diff --git a/src/gui/guiChatConsole.h b/src/gui/guiChatConsole.h
+index 622ca6b..97e93fe 100644
+--- a/src/gui/guiChatConsole.h
++++ b/src/gui/guiChatConsole.h
+@@ -8,6 +8,7 @@
+ #include "chat.h"
+ #include "irr_ptr.h"
+ #include <IGUIEnvironment.h>
++#include <utility>
+ 
+ class Client;
+ class GUIScrollBar;
+@@ -25,7 +26,7 @@ public:
+ 	// Open the console (height = desired fraction of screen size)
+ 	// This doesn't open immediately but initiates an animation.
+ 	// You should call isOpenInhibited() before this.
+-	void openConsole(f32 scale);
++	void openConsole(f32 scale, bool quick_chat = false);
+ 
+ 	bool isOpen() const;
+ 
+@@ -59,6 +60,9 @@ public:
+ 
+ 	virtual bool acceptsIME() { return true; }
+ 
++	bool usesJavaChat() const;
++	void drawJavaRecentChat(bool messages_changed);
++
+ private:
+ 	void reformatConsole();
+ 	void recalculateConsolePosition();
+@@ -68,6 +72,11 @@ private:
+ 	void drawBackground();
+ 	void drawText();
+ 	void drawPrompt();
++	void prepareJavaFont(s32 scale);
++	void drawJavaChat();
++	void drawJavaChatLine(const ChatFormattedLine &line, const core::recti &row,
++			s32 scale, float fade);
++	void drawJavaPrompt(const core::recti &bounds, s32 scale, s32 line_height);
+ 
+ 	// If clicked fragment has a web url, send it to the system default web browser.
+ 	// Returns true if, and only if a web url was pressed.
+@@ -97,6 +106,7 @@ private:
+ 	bool m_open = false;
+ 	// should it close after you press enter?
+ 	bool m_close_on_enter = false;
++	bool m_java_chat = false;
+ 	// current console height [pixels]
+ 	s32 m_height = 0;
+ 	// desired height [pixels]
+@@ -124,6 +134,13 @@ private:
+ 	// font
+ 	irr_ptr<gui::IGUIFont> m_font;
+ 	v2u32 m_fontsize;
++	irr_ptr<gui::IGUIFont> m_java_font;
++	s32 m_java_font_scale = 0;
++	s32 m_java_glyph_width = 1;
++	s32 m_java_font_height = 0;
++	s32 m_java_recent_columns = -1;
++	// Cached rows ordered from the bottom. The index is into the recent buffer.
++	std::vector<std::pair<u32, ChatFormattedLine>> m_java_recent_rows;
+ 
+ 	// Enable clickable chat weblinks
+ 	bool m_cache_clickable_chat_weblinks;

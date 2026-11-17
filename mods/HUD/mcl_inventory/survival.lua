@@ -41,39 +41,80 @@ core.register_on_leaveplayer(function(player)
 	player_current_tab[player] = nil
 end)
 
-local function build_page(_, content, inventory, tabname)
-	local tab_buttons = "style_type[image;noclip=true]"
+local function compact_slot_bg(x, y, columns, rows)
+	-- The Java layout leaves one pixel of bevel on each side of a 16px item.
+	return mcl_formspec.get_itemslot_bg_v4(x, y, columns, rows, 1 / 16, nil, 1 / 8)
+end
 
-	if #mcl_inventory.registered_survival_inventory_tabs ~= 1 then
+local function build_page(player, content, inventory, tabname)
+	local compact = tabname == "main"
+	local tab_buttons = "style_type[image;noclip=true]"
+	local has_tabs = #mcl_inventory.registered_survival_inventory_tabs > 1
+
+	if has_tabs then
 		for i, d in ipairs(mcl_inventory.registered_survival_inventory_tabs) do
 			local btn_name = "tab_" .. d.id
+			local tab_x = 0.2 + (i - 1) * (compact and 1.52 or 1.6)
 
 			tab_buttons = tab_buttons .. table.concat({
 				"style[" .. btn_name .. ";border=false;bgimg=;bgimg_pressed=;noclip=true]",
 				"image[" ..
-					(0.2 + (i - 1) * 1.6) ..
+					tab_x ..
 					",-1.34;1.5,1.44;" .. (tabname == d.id and "crafting_creative_active.png" or "crafting_creative_inactive.png") ..
 					"]",
-				"item_image_button[" .. (0.44 + (i - 1) * 1.6) .. ",-1.1;1,1;" .. d.item_icon .. ";" .. btn_name .. ";]",
+				"item_image_button[" .. (tab_x + 0.24) .. ",-1.1;1,1;" .. d.item_icon .. ";" .. btn_name .. ";]",
 				"tooltip[" .. btn_name .. ";" .. F(d.description) .. "]"
 			})
 		end
 	end
 
-	return table.concat({
-		"formspec_version[6]",
-		"size[11.75,10.9]",
-
-		inventory and table.concat({
-			--Main inventory
+	local lists = ""
+	if inventory and compact then
+		lists = table.concat({
+			"style_type[list;spacing=0.125,0.125]",
+			compact_slot_bg(0.5, 5.25, 9, 3),
+			"list[current_player;main;0.5,5.25;9,3;9]",
+			compact_slot_bg(0.5, 8.875, 9, 1),
+			"list[current_player;main;0.5,8.875;9,1;]",
+		})
+	elseif inventory then
+		-- Custom tabs still use their original canvas and coordinates.
+		lists = table.concat({
 			mcl_formspec.get_itemslot_bg_v4(0.375, 5.575, 9, 3),
 			"list[current_player;main;0.375,5.575;9,3;9]",
-
-			--Hotbar
 			mcl_formspec.get_itemslot_bg_v4(0.375, 9.525, 9, 1),
-			"list[current_player;main;0.375,9.525;9,1;]"
-		}) or "",
+			"list[current_player;main;0.375,9.525;9,1;]",
+		})
+	end
 
+	if compact then
+		local top = has_tabs and 1.34 or 0
+		local navigation, navigation_height = mcl_inventory.navigation_bar(player, 11, top + 11.3, true)
+		return table.concat({
+			"formspec_version[8]",
+			("size[11,%g]"):format(top + 11.3 + navigation_height),
+			"no_prepend[]", mcl_vars.gui_nonbg, "bgcolor[;true;#000000A0]",
+			("background9[0,%g;11,11.3;mcl_base_textures_background9.png;;7]"):format(top),
+			("box[0,%g;11,0.85;#202620]"):format(top),
+			"style_type[label;textcolor=#F2F5EF;font=bold;font_size=*1.15]",
+			("label[0.5,%g;%s]"):format(top + 0.43, F(S("Inventory"))),
+			"style_type[label;textcolor=#323232;font=normal;font_size=*1]",
+			("container[0,%g]"):format(top + 0.88),
+			lists,
+			content,
+			"container_end[]",
+			("container[0,%g]"):format(top),
+			tab_buttons,
+			"container_end[]",
+			navigation,
+		})
+	end
+
+	return table.concat({
+		"formspec_version[7]",
+		"size[11.75,10.9]",
+		"bgcolor[;true;#00000099]",
+		lists,
 		content,
 		tab_buttons,
 	})
@@ -87,13 +128,13 @@ local function get_inventory_formspec(player)
 	for a = 1, 4 do
 		if inv:get_stack("armor", a + 1):is_empty() then
 			armor_slot_imgs = armor_slot_imgs ..
-				"image[0.375," .. (0.375 + (a - 1) * 1.25) .. ";1,1;mcl_inventory_empty_armor_slot_" .. armor_slots[a] .. ".png]"
+				"image[0.5," .. (0.5 + (a - 1) * 1.125) .. ";1,1;mcl_inventory_empty_armor_slot_" .. armor_slots[a] .. ".png]"
 		end
 	end
 
 	local offhand_slot_img = ""
 	if inv:get_stack("offhand", 1):is_empty() then
-		offhand_slot_img = "image[5.375,4.125;1,1;mcl_inventory_empty_armor_slot_shield.png]"
+		offhand_slot_img = "image[4.8125,3.875;1,1;mcl_inventory_empty_armor_slot_shield.png]"
 	end
 
 	local craft_width = inv:get_width("craft")
@@ -104,51 +145,47 @@ local function get_inventory_formspec(player)
 
 	return table.concat({
 		--Armor slots
-		mcl_formspec.get_itemslot_bg_v4(0.375, 0.375, 1, 4),
-		"list[current_player;armor;0.375,0.375;1,1;1]",
-		"list[current_player;armor;0.375,1.625;1,1;2]",
-		"list[current_player;armor;0.375,2.875;1,1;3]",
-		"list[current_player;armor;0.375,4.125;1,1;4]",
+		compact_slot_bg(0.5, 0.5, 1, 4),
 		armor_slot_imgs,
+		"list[current_player;armor;0.5,0.5;1,1;1]",
+		"list[current_player;armor;0.5,1.625;1,1;2]",
+		"list[current_player;armor;0.5,2.75;1,1;3]",
+		"list[current_player;armor;0.5,3.875;1,1;4]",
 
 		--Player model background
-		"image[1.57,0.343;3.62,4.85;mcl_inventory_background9.png;2]",
+		"image[1.5625,0.4375;3.125,4.5;mcl_inventory_background9.png;2]",
 
 		--Offhand
-		mcl_formspec.get_itemslot_bg_v4(5.375, 4.125, 1, 1),
-		"list[current_player;offhand;5.375,4.125;1,1]",
+		compact_slot_bg(4.8125, 3.875, 1, 1),
 		offhand_slot_img,
+		"list[current_player;offhand;4.8125,3.875;1,1]",
 
 		--Craft grid
-		"label[6.61,0.5;" .. F(core.colorize(mcl_formspec.label_color, S("Crafting"))) .. "]",
+		"label[6.0625,0.65;" .. F(core.colorize(mcl_formspec.label_color, S("Crafting"))) .. "]",
 
-		mcl_formspec.get_itemslot_bg_v4(6.625, 0.875, 2, 2),
-		"list[current_player;craft;6.625,0.875;2,1]",
-		"list[current_player;craft;6.625,2.125;2,1;", craft_width, "]",
+		compact_slot_bg(6.125, 1.125, 2, 2),
+		"list[current_player;craft;6.125,1.125;2,1]",
+		"list[current_player;craft;6.125,2.25;2,1;", craft_width, "]",
 
-		"image[9.125,1;1,1;crafting_formspec_arrow.png]",
+		"image[8.4375,1.6875;1,1;crafting_formspec_arrow.png]",
 
-		mcl_formspec.get_itemslot_bg_v4(10.375, 1, 1, 1),
-		"list[current_player;craftpreview;10.375,1;1,1;]",
+		compact_slot_bg(9.5, 1.6875, 1, 1),
+		"list[current_player;craftpreview;9.5,1.6875;1,1;]",
 
-		"image_button[9.125,2.125;1,1;mcl_crafting_table_inv_fill.png;__mcl_crafting_fillgrid;]",
+		"style_type[image_button:hovered,image_button:focused;bgimg=mcl_inventory_button9.png^[multiply:#AAC7DF]",
+		"image_button[9.55,2.875;0.9,0.9;mcl_crafting_table_inv_fill.png;__mcl_crafting_fillgrid;]",
 		"tooltip[__mcl_crafting_fillgrid;" .. F(S("Fill Craft Grid")) .. "]",
 
-		--Crafting guide button
-		"image_button[6.575,4.075;1.1,1.1;craftguide_book.png;__mcl_craftguide;]",
-		"tooltip[__mcl_craftguide;" .. F(S("Recipe book")) .. "]",
-
 		--Help button
-		"image_button[7.825,4.075;1.1,1.1;doc_button_icon_lores.png;__mcl_doc;]",
+		"image_button[7.267,3.925;0.9,0.9;doc_button_icon_lores.png;__mcl_doc;]",
 		"tooltip[__mcl_doc;" .. F(S("Help")) .. "]",
 
-		--Skins button
-		"image_button[9.075,4.075;1.1,1.1;mcl_player_settings.png;__mcl_player_settings;]",
-		"tooltip[__mcl_player_settings;" .. F(S("Player settings")) .. "]",
-
 		--Achievements button
-		"image_button[10.325,4.075;1.1,1.1;mcl_achievements_button.png;__mcl_achievements;]",
+		"image_button[8.408,3.925;0.9,0.9;mcl_achievements_button.png;__mcl_achievements;]",
 		"tooltip[__mcl_achievements;" .. F(S("Advancements")) .. "]",
+
+		"label[0.5,5.04;" .. F(S("Backpack")) .. "]",
+		"label[0.5,8.66;" .. F(S("Hotbar")) .. "]",
 
 		--Listring
 		"listring[current_player;main]",
@@ -162,7 +199,7 @@ local function get_inventory_formspec(player)
 		"listring[current_player;main]",
 
 		-- Player model
-		mcl_player.get_player_formspec_model(player, 1.45, 0.5, 3.62, 4.85, ""),
+		mcl_player.get_player_formspec_model(player, 1.5625, 0.4375, 3.125, 4.5, ""),
 	})
 end
 

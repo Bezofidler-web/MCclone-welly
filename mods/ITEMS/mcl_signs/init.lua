@@ -344,33 +344,79 @@ core.register_entity("mcl_signs:text", {
 })
 
 -- Formspec
+local edit_sessions = {}
+
+local function sign_formname(pos)
+	return "mcl_signs:set_text_" .. pos.x .. "_" .. pos.y .. "_" .. pos.z
+end
+
+-- The front faces and supports of the stock sign meshes share a 64 by 32 atlas.
+local function sign_image(fs, x, y, scale, width, height, sx, sy, atlas)
+	local texture = ("[combine:%dx%d:%d,%d=%s"):format(width, height, -sx, -sy, atlas)
+	fs[#fs + 1] = ("image[%g,%g;%g,%g;%s]"):format(x, y, width * scale, height * scale, F(texture))
+end
+
 local function show_formspec(player, pos)
 	if not pos then return end
-	local meta = core.get_meta(pos)
-	local old_text = ustring_to_string(core.deserialize(meta:get_string("utext"), true) or {})
+	local data = get_signdata(pos)
+	if not data then return end
+	local def = core.registered_nodes[data.node.name]
+	local hanging = core.get_item_group(data.node.name, "hanging_sign") > 0
+	local texture = def.tiles[1]
+	if type(texture) == "table" then texture = texture.name end
+	local atlas = mcl_util.escape_texture(texture .. "^[resize:64x32")
+	local color = data.color:match("^#%x%x%x%x%x%x$") or DEFAULT_COLOR
+	local name = player:get_player_name()
+	local formname = sign_formname(pos)
+	edit_sessions[name] = { formname = formname, pos = pos, node = data.node }
+
 	local fs = {
-		"size[6,3]textarea[0.25,0.25;6,1.5;text;",
-		F(S("Enter sign text:")), ";", F(old_text), "]",
-		"label[0,1.5;",
-			F(S("Maximum line length: @1", LINE_LENGTH)), "\n",
-			F(S("Maximum lines: @1", NUMBER_OF_LINES)),
-		"]",
-		"button_exit[0,2.4;6,1;submit;", F(S("Done")), "]"
+		"formspec_version[8]size[11,8.7]no_prepend[]bgcolor[;true;#00000066]",
+		"style_type[label;textcolor=#FFFFFF;halign=center;valign=center]",
+		"style_type[button;border=false;bgimg=mcl_options_button.png;bgimg_middle=3;textcolor=#FFFFFF]",
+		"style_type[button:hovered,button:focused;bgimg=mcl_options_button_highlighted.png]",
+		("label[0,0.15;11,0.7;%s]"):format(F(S("Edit Sign Message"))),
 	}
-	core.show_formspec(player:get_player_name(), "mcl_signs:set_text_"..pos.x.."_"..pos.y.."_"..pos.z, table.concat(fs))
+	local x, y, w, h
+	if hanging then
+		sign_image(fs, 3.62, 1.52, 0.36, 3, 6, 0, 6, atlas)
+		sign_image(fs, 6.30, 1.52, 0.36, 3, 6, 6, 6, atlas)
+		sign_image(fs, 2.98, 3.68, 0.36, 14, 10, 18, 14, atlas)
+		x, y, w, h = 3.14, 3.9, 4.72, 3.06
+	else
+		sign_image(fs, 5.25, 1.24 + 3, 0.25, 2, 12, 2, 16, atlas)
+		sign_image(fs, 2.5, 1.24, 0.25, 24, 12, 2, 2, atlas)
+		x, y, w, h = 2.66, 1.46, 5.68, 2.56
+	end
+	fs[#fs + 1] = "style_type[textarea;border=false;halign=center;valign=center;textcolor=" .. color .. "]"
+	fs[#fs + 1] = "set_focus[text;true]"
+	fs[#fs + 1] = ("textarea[%g,%g;%g,%g;text;;%s]"):format(x, y, w, h, F(ustring_to_string(data.text)))
+	fs[#fs + 1] = "button_exit[0.5,7.68;10,0.9;submit;" .. F(S("Done")) .. "]"
+	fs[#fs + 1] = "tooltip[submit;" .. F(S("Maximum line length: @1", LINE_LENGTH) .. "\n"
+		.. S("Maximum lines: @1", NUMBER_OF_LINES)) .. "]"
+	core.show_formspec(name, formname, table.concat(fs))
 end
 
 core.register_on_player_receive_fields(function(player, formname, fields)
-	if formname:find("mcl_signs:set_text_") == 1 then
-		local x, y, z = formname:match("mcl_signs:set_text_(.-)_(.-)_(.*)")
-		local pos = vector.new(tonumber(x), tonumber(y), tonumber(z))
-		if not fields or not fields.text then return end
-		if not mcl_util.check_position_protection(pos, player) and (signs_editable or core.get_meta(pos):get_string("text") == "") then
-			local utext = mcl_signs.string_to_ustring(fields.text)
-			set_signmeta(pos, {text = utext})
-			mcl_signs.update_sign(pos)
-		end
+	local name = player:get_player_name()
+	local session = edit_sessions[name]
+	if not session or session.formname ~= formname or not fields.quit then return end
+	edit_sessions[name] = nil
+	if fields.text == nil then return true end
+
+	local pos = session.pos
+	local node = core.get_node(pos)
+	if node.name == session.node.name and node.param2 == session.node.param2
+		and not mcl_util.check_position_protection(pos, player)
+		and (signs_editable or core.get_meta(pos):get_string("text") == "") then
+		set_signmeta(pos, {text = mcl_signs.string_to_ustring(fields.text)})
+		mcl_signs.update_sign(pos)
 	end
+	return true
+end)
+
+core.register_on_leaveplayer(function(player)
+	edit_sessions[player:get_player_name()] = nil
 end)
 
 local unlimited_player_transfer_distance = core.settings:get_bool("unlimited_player_transfer_distance", true)
@@ -379,9 +425,14 @@ local mcl_hand_range_creative = tonumber(core.settings:get("mcl_hand_range_creat
 local max_close_formspec_range = math.min(mcl_hand_range_creative + 1, player_transfer_distance > 0 and player_transfer_distance or math.huge)
 
 function mcl_signs.close_formspec(pos)
+	local formname = sign_formname(pos)
+	for name, session in pairs(edit_sessions) do
+		if session.formname == formname then
+			edit_sessions[name] = nil
+		end
+	end
 	for player in mcl_util.connected_players(pos, max_close_formspec_range) do
-		core.close_formspec(player:get_player_name(),
-			"mcl_signs:set_text_" .. pos.x .. "_" .. pos.y .. "_" .. pos.z)
+		core.close_formspec(player:get_player_name(), formname)
 	end
 end
 

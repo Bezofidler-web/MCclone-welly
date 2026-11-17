@@ -2,9 +2,13 @@
 Forked from [sprint] by GunshipPenguin  
 
 ## Description
-Allows the player to sprint by pressing the “Use” key (default: E).
-By default, sprinting will make the player travel 80% faster and 
-allow him/her to jump 10% higher. 
+Press the Aux1 key while moving forwards or double-tap Forward to sprint.
+The Java-style profiles bind Aux1 to Left Ctrl. Stock Luanti binds Aux1 to E.
+Sprinting increases walking speed by 30% and widens the field of view. It
+continues while you move forwards and have enough food. Sneaking stops it.
+
+The default double-tap window is 350 ms. Change it in the in-game Accessibility
+Settings. A window of 0 ms disables double-tap sprinting.
 
 ## License
 CC0 (see COPYING file)

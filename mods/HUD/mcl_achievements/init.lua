@@ -506,7 +506,6 @@ if non_pc_achievements then
 		}
 	})
 
-	-- FIXME: Eating achievements don't work when you have exactly one of these items on hand
 	awards.register_achievement("mcl:n_eatPorkchop", {
 		title = S("Pork Chop"),
 		description = S("Eat a cooked porkchop."),

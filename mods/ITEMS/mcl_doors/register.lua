@@ -13,6 +13,7 @@ mcl_doors:register_door("mcl_doors:iron_door", {
 	sounds = mcl_sounds.node_sound_metal_defaults(),
 	sound_open = "doors_steel_door_open",
 	sound_close = "doors_steel_door_close",
+	_java_sound_family = "iron_door",
 
 	only_redstone_can_open = true,
 })
@@ -37,6 +38,7 @@ mcl_doors:register_trapdoor("mcl_doors:iron_trapdoor", {
 	sounds = mcl_sounds.node_sound_metal_defaults(),
 	sound_open = "doors_steel_door_open",
 	sound_close = "doors_steel_door_close",
+	_java_sound_family = "iron_trapdoor",
 
 	only_redstone_can_open = true,
 })

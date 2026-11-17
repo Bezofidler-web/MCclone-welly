@@ -62,12 +62,13 @@ mobs_mc.overworld_biomes = {
 mobs_mc.farm_animal_biomes = {
 	"BambooJungle",
 	"BirchForest",
-	"CherryGrove",
 	"DappledForest",
 	"DarkForest",
+	"ErodedMesa",
 	"FlowerForest",
 	"Forest",
 	"Jungle",
+	"Mesa",
 	"OldGrowthBirchForest",
 	"OldGrowthPineTaiga",
 	"OldGrowthSpruceTaiga",
@@ -83,6 +84,7 @@ mobs_mc.farm_animal_biomes = {
 	"WindsweptGravellyHills",
 	"WindsweptHills",
 	"WindsweptSavannah",
+	"WoodedMesa",
 }
 
 mobs_mc.monster_biomes = {
@@ -164,7 +166,7 @@ end
 
 function animal_spawner:test_spawn_position (spawn_pos, node_pos, sdata, node_cache,
 					     spawn_flag)
-	local light = core.get_node_light (node_pos)
+	local light = core.get_node_light (node_pos, spawn_flag == "worldgen" and 0.5 or nil)
 	if not light or light <= 8 then
 		return false
 	end

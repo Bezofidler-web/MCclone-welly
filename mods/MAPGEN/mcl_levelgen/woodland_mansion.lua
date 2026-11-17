@@ -2187,6 +2187,7 @@ end
 
 local has_woodland_mansion = {
 	"DarkForest",
+	"PaleGarden",
 }
 
 mcl_levelgen.modify_biome_groups (has_woodland_mansion, {

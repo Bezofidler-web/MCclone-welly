@@ -50,6 +50,11 @@ License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 
 The main menu images are released under: [CC0](https://creativecommons.org/publicdomain/zero/1.0/)
 
+The pixel fonts in `menu/font` are Idrees Hassan’s [Minecraft Font](https://github.com/IdreesInc/Minecraft-Font).
+They are distributed under the [SIL Open Font License 1.1](menu/font/LICENSE).
+[Monocraft](https://github.com/IdreesInc/Monocraft) is by the same author and
+is distributed under the [SIL Open Font License 1.1](menu/font/Monocraft-LICENSE).
+
 All other files, unless mentioned otherwise, fall under:
 Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)
 <http://creativecommons.org/licenses/by-sa/3.0/>

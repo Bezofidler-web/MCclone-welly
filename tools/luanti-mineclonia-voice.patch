@@ -1,0 +1,1470 @@
+diff --git a/irr/include/irrString.h b/irr/include/irrString.h
+index 48c107f..d47fa53 100644
+--- a/irr/include/irrString.h
++++ b/irr/include/irrString.h
+@@ -9,6 +9,7 @@
+ #include <string_view>
+ #include <algorithm>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <cwchar>
+ #include <cassert>
+@@ -897,7 +898,7 @@ inline size_t multibyteToWString(stringw &destination, const core::stringc &sour
+ #pragma warning(push)
+ #pragma warning(disable : 4996) // 'mbstowcs': This function or variable may be unsafe. Consider using mbstowcs_s instead.
+ #endif
+-		const size_t written = mbstowcs(&destination[0], source.c_str(), (size_t)sourceSize);
++		const size_t written = std::mbstowcs(&destination[0], source.c_str(), (size_t)sourceSize);
+ #if defined(_MSC_VER)
+ #pragma warning(pop)
+ #endif
+diff --git a/src/client/CMakeLists.txt b/src/client/CMakeLists.txt
+index 60d378d..b606c53 100644
+--- a/src/client/CMakeLists.txt
++++ b/src/client/CMakeLists.txt
+@@ -66,6 +66,8 @@ set(client_SRCS
+ 	${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/mesh_generator_thread.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/minimap.cpp
++	${CMAKE_CURRENT_SOURCE_DIR}/mineclonia_voice_audio.cpp
++	${CMAKE_CURRENT_SOURCE_DIR}/mineclonia_voice_client.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/node_visuals.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/particles.cpp
+ 	${CMAKE_CURRENT_SOURCE_DIR}/renderingengine.cpp
+diff --git a/src/client/client.cpp b/src/client/client.cpp
+index c25cd8c..b59fd6f 100644
+--- a/src/client/client.cpp
++++ b/src/client/client.cpp
+@@ -341,6 +341,7 @@ const ModSpec* Client::getModSpec(const std::string &modname) const
+ 
+ void Client::Stop()
+ {
++	m_voice.stop();
+ 	m_shutdown = true;
+ 	if (m_mods_loaded)
+ 		m_script->on_shutdown();
+diff --git a/src/client/client.h b/src/client/client.h
+index 5f2ba2a..d5aeece 100644
+--- a/src/client/client.h
++++ b/src/client/client.h
+@@ -10,6 +10,7 @@
+ #include "inventorymanager.h"
+ #include "irrlichttypes.h"
+ #include "lighting.h"
++#include "mineclonia_voice_client.h"
+ #include "network/address.h"
+ #include "network/networkprotocol.h" // multiple enums
+ #include "network/peerhandler.h"
+@@ -207,6 +208,9 @@ public:
+ 	void handleCommand_UpdatePlayerList(NetworkPacket* pkt);
+ 	void handleCommand_ModChannelMsg(NetworkPacket *pkt);
+ 	void handleCommand_ModChannelSignal(NetworkPacket *pkt);
++	void handleCommand_MclVoiceState(NetworkPacket *pkt);
++	void handleCommand_MclVoiceAudio(NetworkPacket *pkt);
++	MinecloniaVoiceClient &voice() { return m_voice; }
+ 	void handleCommand_SrpBytesSandB(NetworkPacket *pkt);
+ 	void handleCommand_FormspecPrepend(NetworkPacket *pkt);
+ 	void handleCommand_CSMRestrictionFlags(NetworkPacket *pkt);
+@@ -218,6 +222,11 @@ public:
+ 
+ 	void ProcessData(NetworkPacket *pkt);
+ 
++private:
++	MinecloniaVoiceClient m_voice;
++
++public:
++
+ 	void Send(NetworkPacket* pkt);
+ 
+ 	void interact(InteractAction action, const PointedThing &pointed);
+diff --git a/src/client/game.cpp b/src/client/game.cpp
+index 77ae606..888b401 100644
+--- a/src/client/game.cpp
++++ b/src/client/game.cpp
+@@ -579,6 +579,7 @@ void Game::run()
+ 		updatePlayerControl(cam_view);
+ 
+ 		updatePauseState();
++		client->voice().step(*client, dtime);
+ 		if (m_is_paused)
+ 			dtime = 0.0f;
+ 
+diff --git a/src/client/game_formspec.cpp b/src/client/game_formspec.cpp
+index 5d2fc12..1fb8695 100644
+--- a/src/client/game_formspec.cpp
++++ b/src/client/game_formspec.cpp
+@@ -83,13 +83,17 @@ struct LocalScriptingFormspecHandler : public TextDest
+ 
+ struct HardcodedPauseFormspecHandler : public TextDest
+ {
+-	HardcodedPauseFormspecHandler()
++	explicit HardcodedPauseFormspecHandler(bool &open_voice) : m_open_voice(open_voice)
+ 	{
+ 		m_formname = "MT_PAUSE_MENU";
+ 	}
+ 
+ 	void gotText(const StringMap &fields)
+ 	{
++		if (fields.count("btn_mcl_voice")) {
++			m_open_voice = true;
++			return;
++		}
+ 		if (fields.find("btn_settings") != fields.end()) {
+ 			g_gamecallback->openSettings();
+ 			return;
+@@ -118,13 +122,15 @@ struct HardcodedPauseFormspecHandler : public TextDest
+ 			return;
+ 		}
+ 	}
++
++	bool &m_open_voice;
+ };
+ 
+ class JavaPauseFormSource final : public IFormSource
+ {
+ public:
+-	JavaPauseFormSource(ITextureSource *textures, bool local_game) :
+-		m_textures(textures), m_local_game(local_game)
++	JavaPauseFormSource(ITextureSource *textures, bool local_game, bool voice) :
++		m_textures(textures), m_local_game(local_game), m_voice(voice)
+ 	{
+ 	}
+ 
+@@ -220,7 +226,9 @@ public:
+ 			}
+ 			button(left, top + 3 * row, half, "btn_java_options", gettext("Options..."));
+ 			button(right, top + 3 * row, half, "btn_java_world", gettext("World Options..."), true);
+-			button(left, top + 4 * row, full, "btn_exit_menu",
++			if (m_voice)
++				button(left, top + 4 * row, full, "btn_mcl_voice", gettext("Voice Chat"));
++			button(left, top + (m_voice ? 5 : 4) * row, full, "btn_exit_menu",
+ 				m_local_game ? gettext("Save and Quit to Title") : gettext("Disconnect"), true);
+ 		}
+ 
+@@ -248,6 +256,7 @@ private:
+ 
+ 	ITextureSource *m_textures;
+ 	const bool m_local_game;
++	const bool m_voice;
+ 	bool m_options = false;
+ 	mutable v2u32 m_screen;
+ 	mutable float m_density = 0.0f;
+@@ -256,8 +265,8 @@ private:
+ 
+ struct JavaPauseFormspecHandler final : public HardcodedPauseFormspecHandler
+ {
+-	JavaPauseFormspecHandler(Client *client, JavaPauseFormSource *source) :
+-		m_client(client), m_source(source)
++	JavaPauseFormspecHandler(Client *client, JavaPauseFormSource *source, bool &open_voice) :
++		HardcodedPauseFormspecHandler(open_voice), m_client(client), m_source(source)
+ 	{
+ 	}
+ 
+@@ -290,6 +299,146 @@ struct JavaPauseFormspecHandler final : public HardcodedPauseFormspecHandler
+ 	JavaPauseFormSource *m_source;
+ };
+ 
++static const char *voiceRoomName(u8 room)
++{
++	switch (room) {
++	case 1: return gettext("Lobby");
++	case 2: return gettext("Building");
++	case 3: return gettext("Exploring");
++	default: return "";
++	}
++}
++
++class VoiceFormSource final : public IFormSource
++{
++public:
++	explicit VoiceFormSource(const MinecloniaVoiceClient &voice) : m_voice(voice) {}
++
++	const std::string &getForm() const override
++	{
++		using namespace mineclonia_voice;
++		std::ostringstream os;
++		os << "formspec_version[8]size[9.4,7.5]no_prepend[]bgcolor[;true;#101410C4]"
++			"box[0,0;9.4,7.5;#202620]box[0,0;9.4,1.05;#151B16]"
++			"box[0,1.05;9.4,0.03;#65735E]"
++			"style_type[label;textcolor=#F2F5EF]"
++			"style_type[button,button_exit;border=false;bgimg=mcl_options_button.png;"
++			"bgimg_middle=3;textcolor=#FFFFFF]"
++			"style_type[button:hovered,button:focused,button_exit:hovered,button_exit:focused;"
++			"bgimg=mcl_options_button_highlighted.png]"
++			"style_type[label;font_size=*1.25]label[0.45,0.52;" << esc(gettext("Voice Chat"))
++			<< "]style_type[label;font_size=*1]label[0.45,1.45;"
++			<< esc(gettext("Joining a channel turns on your microphone.")) << ']';
++
++		auto button = [&](double x, double y, double width, const std::string &action,
++				const std::string &label) {
++			os << "button[" << x << ',' << y << ';' << width << ",0.64;"
++				<< action << ';' << esc(label) << ']';
++		};
++		os << "label[0.45,2.08;" << esc(gettext("Channels")) << ']';
++		os << "label[4.94,2.08;" << esc(gettext("In your channel")) << ']';
++		for (u8 room = 1; room <= ROOM_COUNT; ++room) {
++			const double y = 2.42 + (room - 1) * 0.81;
++			const std::string label = std::string(voiceRoomName(room)) + "   " +
++					std::to_string(m_voice.counts[room - 1]) + "/" + std::to_string(ROOM_CAPACITY);
++			if (room == m_voice.room || !m_voice.ready || m_voice.busy() ||
++					m_voice.counts[room - 1] == ROOM_CAPACITY) {
++				os << "box[0.45," << y << ";4.02,0.64;"
++					<< (room == m_voice.room ? "#476348" : "#333C33") << ']'
++					<< "label[0.68," << y + 0.32 << ';' << esc(label) << ']';
++			} else {
++				button(0.45, y, 4.02, "voice_join_" + std::to_string(room), label);
++			}
++		}
++		if (m_voice.room) {
++			os << "textlist[4.94,2.42;4.02,2.26;voice_members;";
++			const char *separator = "";
++			for (const auto &member : m_voice.members) {
++				os << separator << esc(member.second);
++				separator = ",";
++			}
++			os << ";0;false]";
++		} else {
++			os << "label[4.94,2.73;" << esc(gettext("You haven't joined a channel.")) << ']';
++		}
++
++		const char *status = nullptr;
++		using Status = MinecloniaVoiceClient::Status;
++		switch (m_voice.status) {
++		case Status::Loading: status = gettext("Loading voice channels…"); break;
++		case Status::Pending: status = gettext("Waiting for the server…"); break;
++		case Status::Full: status = gettext("That channel is full."); break;
++		case Status::TimedOut: status = gettext("The server didn't answer. Try again."); break;
++		default: break;
++		}
++		if (!status && m_voice.room) {
++			if (m_voice.microphone_error)
++				status = gettext("Microphone unavailable. Check your device and permissions.");
++			else if (!m_voice.deafened && !m_voice.playback_ready)
++				status = gettext("Voice output unavailable.");
++			else
++				status = m_voice.transmitting ? gettext("Microphone on") : gettext("Microphone muted");
++		}
++		if (status)
++			os << "label[0.45,5.08;" << esc(status) << ']';
++		if (m_voice.room && !m_voice.busy()) {
++			button(0.45, 5.55, 2.72, "voice_mic",
++					m_voice.transmitting ? gettext("Mute Mic") : gettext("Unmute Mic"));
++			button(3.34, 5.55, 2.72, "voice_deafen",
++					m_voice.deafened ? gettext("Unmute Voices") : gettext("Mute Voices"));
++			button(6.23, 5.55, 2.72, "voice_leave", gettext("Leave Channel"));
++		} else if (!m_voice.ready && !m_voice.busy()) {
++			button(0.45, 5.55, 4.02, "voice_retry", gettext("Retry"));
++		}
++		os << "button_exit[0.45,6.45;8.5,0.64;voice_done;" << esc(gettext("Back to Game")) << ']';
++		m_form = os.str();
++		return m_form;
++	}
++
++private:
++	static std::string esc(std::string text)
++	{
++		str_formspec_escape(text);
++		return text;
++	}
++
++	const MinecloniaVoiceClient &m_voice;
++	mutable std::string m_form;
++};
++
++struct VoiceFormspecHandler final : public TextDest
++{
++	explicit VoiceFormspecHandler(Client *client) : m_client(client)
++	{
++		m_formname = "mineclonia_voice";
++	}
++
++	void gotText(const StringMap &fields) override
++	{
++		if (fields.count("quit"))
++			return;
++		auto &voice = m_client->voice();
++		if (fields.count("voice_leave"))
++			voice.request(*m_client, 0);
++		else if (fields.count("voice_retry"))
++			voice.request(*m_client, mineclonia_voice::QUERY);
++		else if (fields.count("voice_mic"))
++			voice.toggleMicrophone();
++		else if (fields.count("voice_deafen"))
++			voice.toggleDeafen();
++		else {
++			for (u8 room = 1; room <= mineclonia_voice::ROOM_COUNT; ++room) {
++				if (fields.count("voice_join_" + std::to_string(room))) {
++					voice.request(*m_client, room);
++					break;
++				}
++			}
++		}
++	}
++
++	Client *m_client;
++};
++
+ struct LegacyDeathFormspecHandler : public TextDest
+ {
+ 	LegacyDeathFormspecHandler(Client *client)
+@@ -533,8 +682,8 @@ void GameFormSpec::showPauseMenu()
+ {
+ 	if (g_settings->getBool("mcl_java_ui")) {
+ 		auto *source = new JavaPauseFormSource(m_client->getTextureSource(),
+-				m_client->getAddressName().empty());
+-		auto *handler = new JavaPauseFormspecHandler(m_client, source);
++				m_client->getAddressName().empty(), m_client->voice().available);
++		auto *handler = new JavaPauseFormspecHandler(m_client, source, m_open_voice_menu);
+ 		GUIFormSpecMenu::create(m_formspec, m_client, m_rendering_engine->get_gui_env(),
+ 				source, handler, "", m_client->getSoundManager());
+ 		m_formspec->setName("mcl_java_pause");
+@@ -564,7 +713,7 @@ void GameFormSpec::showPauseMenu()
+ 	auto simple_singleplayer_mode = m_client->m_simple_singleplayer_mode;
+ 
+ 	const float button_height = 0.8f;
+-	const float spacing = 0.38f;
++	const float spacing = m_client->voice().available ? 0.22f : 0.38f;
+ 	float ypos = simple_singleplayer_mode ? 1.05f : 0.325f;
+ 	std::ostringstream os;
+ 
+@@ -598,6 +747,11 @@ void GameFormSpec::showPauseMenu()
+ #endif
+ #endif
+ 
++	if (m_client->voice().available) {
++		os << "button[0," << (ypos += button_height + spacing) << ";3.5,"
++			<< button_height << ";btn_mcl_voice;" << strgettext("Voice Chat") << ']';
++	}
++
+ 	os << "button_exit[0," << (ypos += button_height + spacing) << ";3.5," << button_height << ";btn_exit_menu;"
+ 		// TRANSLATORS: Pause menu button, try to keep the translation short
+ 		<< strgettext("Exit to Menu") << "]";
+@@ -653,7 +807,7 @@ void GameFormSpec::showPauseMenu()
+ 	/* Note: FormspecFormSource and LocalFormspecHandler  *
+ 	 * are deleted by guiFormSpecMenu                     */
+ 	FormspecFormSource *fs_src = new FormspecFormSource(os.str());
+-	HardcodedPauseFormspecHandler *txt_dst = new HardcodedPauseFormspecHandler();
++	HardcodedPauseFormspecHandler *txt_dst = new HardcodedPauseFormspecHandler(m_open_voice_menu);
+ 
+ 	GUIFormSpecMenu::create(m_formspec, m_client, m_rendering_engine->get_gui_env(),
+ 			fs_src, txt_dst, m_client->getFormspecPrepend(),
+@@ -663,6 +817,19 @@ void GameFormSpec::showPauseMenu()
+ 	m_formspec->doPause = true;
+ }
+ 
++void GameFormSpec::showVoiceMenu()
++{
++	auto &voice = m_client->voice();
++	if (!voice.available)
++		return;
++	if (!voice.ready)
++		voice.request(*m_client, mineclonia_voice::QUERY);
++	GUIFormSpecMenu::create(m_formspec, m_client, m_rendering_engine->get_gui_env(),
++			new VoiceFormSource(voice), new VoiceFormspecHandler(m_client), "",
++			m_client->getSoundManager());
++	m_formspec->setName("mineclonia_voice");
++}
++
+ void GameFormSpec::showDeathFormspecLegacy()
+ {
+ 	static std::string formspec_str =
+@@ -733,6 +900,11 @@ bool GameFormSpec::handleCallbacks()
+ 		return false;
+ 	}
+ 
++	if (m_open_voice_menu) {
++		m_open_voice_menu = false;
++		showVoiceMenu();
++	}
++
+ 	if (g_gamecallback->settings_requested) {
+ 		m_pause_script->open_settings();
+ 		g_gamecallback->settings_requested = false;
+diff --git a/src/client/game_formspec.h b/src/client/game_formspec.h
+index b83e0a6..ffc1751 100644
+--- a/src/client/game_formspec.h
++++ b/src/client/game_formspec.h
+@@ -39,6 +39,7 @@ struct GameFormSpec
+ 	void showDeathFormspecLegacy();
+ 	// Shows the hardcoded "main" pause menu.
+ 	void showPauseMenu();
++	void showVoiceMenu();
+ 
+ 	void update();
+ 	void disableDebugView();
+@@ -55,6 +56,7 @@ private:
+ 	Client *m_client;
+ 	RenderingEngine *m_rendering_engine;
+ 	InputHandler *m_input;
++	bool m_open_voice_menu = false;
+ 	std::unique_ptr<PauseMenuScripting> m_pause_script;
+ 
+ 	/// The currently open formspec that is not a submenu of the pause menu
+diff --git a/src/client/gameui.cpp b/src/client/gameui.cpp
+index 9cbc3b3..3f84b27 100644
+--- a/src/client/gameui.cpp
++++ b/src/client/gameui.cpp
+@@ -94,6 +94,13 @@ void GameUI::init()
+ 	m_status_text = std::make_unique<StatusTextHelper>(guienv, guiroot);
+ 	m_status_text->setGameStyle();
+ 
++	m_voice_indicator = gui::StaticText::add(guienv, wstrgettext("MIC ON").c_str(),
++		core::recti(), false, false, guiroot);
++	m_voice_indicator->setTextAlignment(gui::EGUIA_CENTER, gui::EGUIA_CENTER);
++	m_voice_indicator->setBackgroundColor(video::SColor(220, 110, 24, 33));
++	m_voice_indicator->setOverrideColor(video::SColor(255, 255, 255, 255));
++	m_voice_indicator->setVisible(false);
++
+ 	// Profiler text (size is updated when text is updated)
+ 	m_guitext_profiler = gui::StaticText::add(guienv, L"<Profiler>",
+ 		core::recti(), false, false, guiroot);
+@@ -107,6 +114,14 @@ void GameUI::update(const RunStats &stats, Client *client, MapDrawControl *draw_
+ 	GUIChatConsole *chat_console, float dtime)
+ {
+ 	v2u32 screensize = RenderingEngine::getWindowSize();
++	m_voice_indicator->setVisible(client->voice().transmitting);
++	if (client->voice().transmitting) {
++		const s32 centre = screensize.X / 2;
++		const s32 height = m_voice_indicator->getActiveFont()->getDimension(L"Ay").Height;
++		const s32 width = m_voice_indicator->getTextWidth() + 20;
++		m_voice_indicator->setRelativePosition(core::recti(centre - width / 2, 8,
++				centre + width / 2, 16 + height));
++	}
+ 
+ 	LocalPlayer *player = client->getEnv().getLocalPlayer();
+ 
+@@ -331,6 +346,10 @@ void GameUI::toggleProfiler()
+ 
+ void GameUI::clearText()
+ {
++	if (m_voice_indicator) {
++		m_voice_indicator->remove();
++		m_voice_indicator = nullptr;
++	}
+ 	if (m_java_recent_chat) {
+ 		m_java_recent_chat->remove();
+ 		m_java_recent_chat = nullptr;
+diff --git a/src/client/gameui.h b/src/client/gameui.h
+index b7060e1..b57a595 100644
+--- a/src/client/gameui.h
++++ b/src/client/gameui.h
+@@ -101,6 +101,7 @@ private:
+ 	std::unique_ptr<StatusTextHelper> m_status_text = nullptr;
+ 
+ 	gui::IGUIStaticText *m_guitext_chat = nullptr; // Chat text
++	gui::IGUIStaticText *m_voice_indicator = nullptr;
+ 	GUIJavaRecentChat *m_java_recent_chat = nullptr;
+ 	u32 m_recent_chat_count = 0;
+ 	core::rect<s32> m_current_chat_size{0, 0, 0, 0};
+diff --git a/src/client/mineclonia_voice_audio.cpp b/src/client/mineclonia_voice_audio.cpp
+new file mode 100644
+index 0000000..d80e73c
+--- /dev/null
++++ b/src/client/mineclonia_voice_audio.cpp
+@@ -0,0 +1,321 @@
++// Luanti
++// SPDX-License-Identifier: LGPL-2.1-or-later
++
++#include "mineclonia_voice_audio.h"
++#include "config.h"
++
++#if USE_SOUND
++#if defined(_WIN32)
++#include <al.h>
++#include <alc.h>
++#elif defined(__APPLE__)
++#define OPENAL_DEPRECATED
++#include <OpenAL/al.h>
++#include <OpenAL/alc.h>
++#else
++#include <AL/al.h>
++#include <AL/alc.h>
++#endif
++#include <algorithm>
++#include <array>
++#include <cstdlib>
++#include <unordered_map>
++#include <utility>
++
++namespace
++{
++constexpr ALCsizei SAMPLE_RATE = 16000;
++constexpr ALCsizei SAMPLES_PER_FRAME = SAMPLE_RATE / 50;
++constexpr ALCsizei CAPTURE_BUFFER_SAMPLES = SAMPLES_PER_FRAME * 10;
++constexpr ALCsizei MAX_CAPTURE_SAMPLES_PER_STEP = SAMPLES_PER_FRAME * 4;
++constexpr std::size_t PLAYBACK_BUFFERS = 6;
++constexpr std::size_t MAX_PLAYBACK_PEERS = 16;
++constexpr int MULAW_BIAS = 0x84;
++static_assert(SAMPLES_PER_FRAME == MinecloniaVoiceAudio::FRAME_BYTES);
++
++using SetThreadContext = ALCboolean (ALC_APIENTRY *)(ALCcontext *);
++using GetThreadContext = ALCcontext *(ALC_APIENTRY *)();
++
++unsigned char encodeSample(ALshort sample)
++{
++	int magnitude = std::min(std::abs(static_cast<int>(sample)), 32635) + MULAW_BIAS;
++	int exponent = 7;
++	for (int mask = 0x4000; exponent > 0 && !(magnitude & mask); mask >>= 1)
++		--exponent;
++	int mantissa = (magnitude >> (exponent + 3)) & 0xf;
++	int sign = sample < 0 ? 0x80 : 0;
++	return static_cast<unsigned char>(~(sign | (exponent << 4) | mantissa));
++}
++
++ALshort decodeSample(unsigned char value)
++{
++	int code = ~value & 0xff;
++	int magnitude = (((code & 0xf) << 3) + MULAW_BIAS) << ((code >> 4) & 7);
++	return (code & 0x80) ? MULAW_BIAS - magnitude : magnitude - MULAW_BIAS;
++}
++
++// The game uses a process-wide OpenAL context on its sound thread. A scoped
++// thread-local binding keeps voice calls out of that context and vice versa.
++class ContextBinding
++{
++public:
++	ContextBinding(ALCcontext *context, SetThreadContext set_context,
++			GetThreadContext get_context) :
++			m_set(set_context), m_previous(get_context()), m_bound(set_context(context))
++	{}
++
++	~ContextBinding()
++	{
++		if (m_bound)
++			m_set(m_previous);
++	}
++
++	explicit operator bool() const { return m_bound; }
++
++private:
++	SetThreadContext m_set;
++	ALCcontext *m_previous;
++	bool m_bound;
++};
++
++struct PlaybackStream
++{
++	ALuint source = 0;
++	std::array<ALuint, PLAYBACK_BUFFERS> buffers{};
++	std::array<ALuint, PLAYBACK_BUFFERS> available{};
++	std::size_t available_count = 0;
++	float idle = 0;
++
++	bool open()
++	{
++		alGetError();
++		alGenSources(1, &source);
++		if (alGetError() != AL_NO_ERROR)
++			return false;
++		alGenBuffers(buffers.size(), buffers.data());
++		if (alGetError() != AL_NO_ERROR) {
++			alDeleteSources(1, &source);
++			return false;
++		}
++		alSourcei(source, AL_SOURCE_RELATIVE, AL_TRUE);
++		alSourcef(source, AL_ROLLOFF_FACTOR, 0);
++		available = buffers;
++		available_count = available.size();
++		return true;
++	}
++
++	void close()
++	{
++		alDeleteSources(1, &source);
++		alDeleteBuffers(buffers.size(), buffers.data());
++	}
++
++	void update()
++	{
++		ALint processed = 0;
++		alGetSourcei(source, AL_BUFFERS_PROCESSED, &processed);
++		if (processed > 0 && std::size_t(processed) <= available.size() - available_count) {
++			alGetError();
++			alSourceUnqueueBuffers(source, processed, available.data() + available_count);
++			if (alGetError() == AL_NO_ERROR)
++				available_count += processed;
++		}
++	}
++
++	void start()
++	{
++		ALint state = 0;
++		alGetSourcei(source, AL_SOURCE_STATE, &state);
++		if (state != AL_PLAYING && available_count < available.size())
++			alSourcePlay(source);
++	}
++
++	void queue(std::string_view frame)
++	{
++		update();
++		if (!available_count)
++			return;
++
++		std::array<ALshort, SAMPLES_PER_FRAME> samples;
++		std::transform(frame.begin(), frame.end(), samples.begin(), decodeSample);
++		ALuint buffer = available[available_count - 1];
++		alGetError();
++		alBufferData(buffer, AL_FORMAT_MONO16, samples.data(),
++				samples.size() * sizeof(ALshort), SAMPLE_RATE);
++		if (alGetError() == AL_NO_ERROR) {
++			alSourceQueueBuffers(source, 1, &buffer);
++			if (alGetError() == AL_NO_ERROR)
++				--available_count;
++		}
++		if (available.size() - available_count >= 3)
++			start();
++	}
++};
++} // namespace
++
++struct MinecloniaVoiceAudio::Impl
++{
++	ALCdevice *microphone = nullptr;
++	ALCdevice *output = nullptr;
++	ALCcontext *context = nullptr;
++	SetThreadContext set_context = nullptr;
++	GetThreadContext get_context = nullptr;
++	std::unordered_map<std::uint16_t, PlaybackStream> streams;
++};
++
++bool MinecloniaVoiceAudio::enablePlayback()
++{
++	if (m_impl->context)
++		return true;
++
++	m_impl->output = alcOpenDevice(nullptr);
++	if (!m_impl->output)
++		return false;
++
++	if (alcIsExtensionPresent(m_impl->output, "ALC_EXT_thread_local_context")) {
++		m_impl->set_context = reinterpret_cast<SetThreadContext>(
++				alcGetProcAddress(m_impl->output, "alcSetThreadContext"));
++		m_impl->get_context = reinterpret_cast<GetThreadContext>(
++				alcGetProcAddress(m_impl->output, "alcGetThreadContext"));
++	}
++	if (m_impl->set_context && m_impl->get_context)
++		m_impl->context = alcCreateContext(m_impl->output, nullptr);
++	if (m_impl->context) {
++		ContextBinding binding(m_impl->context, m_impl->set_context, m_impl->get_context);
++		if (binding)
++			return true;
++	}
++	clearPlayback();
++	return false;
++}
++
++bool MinecloniaVoiceAudio::setMicrophone(bool enabled)
++{
++	if (!enabled) {
++		if (m_impl->microphone) {
++			alcCaptureStop(m_impl->microphone);
++			alcCaptureCloseDevice(m_impl->microphone);
++			m_impl->microphone = nullptr;
++		}
++		return true;
++	}
++	if (m_impl->microphone)
++		return true;
++
++	m_impl->microphone = alcCaptureOpenDevice(nullptr, SAMPLE_RATE, AL_FORMAT_MONO16,
++			CAPTURE_BUFFER_SAMPLES);
++	if (!m_impl->microphone)
++		return false;
++	alcCaptureStart(m_impl->microphone);
++	if (alcGetError(m_impl->microphone) != ALC_NO_ERROR) {
++		setMicrophone(false);
++		return false;
++	}
++	return true;
++}
++
++std::vector<std::string> MinecloniaVoiceAudio::capture()
++{
++	std::vector<std::string> frames;
++	if (!m_impl->microphone)
++		return frames;
++	ALCint available = 0;
++	alcGetIntegerv(m_impl->microphone, ALC_CAPTURE_SAMPLES, 1, &available);
++	available = std::clamp(available, 0, CAPTURE_BUFFER_SAMPLES);
++	// Keep partial frames in the capture device and drop old audio when a frame stalls.
++	ALCint end = available - available % SAMPLES_PER_FRAME;
++	if (!end)
++		return frames;
++	std::array<ALshort, CAPTURE_BUFFER_SAMPLES> samples;
++	alcCaptureSamples(m_impl->microphone, samples.data(), end);
++	if (alcGetError(m_impl->microphone) != ALC_NO_ERROR)
++		return frames;
++
++	ALCint begin = std::max<ALCint>(0, end - MAX_CAPTURE_SAMPLES_PER_STEP);
++	frames.reserve((end - begin) / SAMPLES_PER_FRAME);
++	for (ALCint offset = begin; offset < end; offset += SAMPLES_PER_FRAME) {
++		std::string frame(FRAME_BYTES, '\0');
++		std::transform(samples.begin() + offset, samples.begin() + offset + SAMPLES_PER_FRAME,
++				frame.begin(), encodeSample);
++		frames.push_back(std::move(frame));
++	}
++	return frames;
++}
++
++void MinecloniaVoiceAudio::receive(std::uint16_t peer, std::string_view frame)
++{
++	if (!m_impl->context || frame.size() != FRAME_BYTES)
++		return;
++	ContextBinding binding(m_impl->context, m_impl->set_context, m_impl->get_context);
++	if (!binding)
++		return;
++	auto stream = m_impl->streams.find(peer);
++	if (stream == m_impl->streams.end()) {
++		if (m_impl->streams.size() >= MAX_PLAYBACK_PEERS)
++			return;
++		stream = m_impl->streams.try_emplace(peer).first;
++		if (!stream->second.open()) {
++			m_impl->streams.erase(stream);
++			return;
++		}
++	}
++	stream->second.idle = 0;
++	stream->second.queue(frame);
++}
++
++void MinecloniaVoiceAudio::step(float dtime)
++{
++	if (m_impl->streams.empty())
++		return;
++	ContextBinding binding(m_impl->context, m_impl->set_context, m_impl->get_context);
++	if (!binding)
++		return;
++	for (auto it = m_impl->streams.begin(); it != m_impl->streams.end();) {
++		auto &stream = it->second;
++		stream.idle += dtime;
++		if (stream.idle >= 1.0f) {
++			stream.close();
++			it = m_impl->streams.erase(it);
++			continue;
++		}
++		if (stream.idle >= 0.06f) {
++			stream.update();
++			stream.start();
++		}
++		++it;
++	}
++}
++
++void MinecloniaVoiceAudio::clearPlayback()
++{
++	// Destroying the dedicated context releases every stream and queued buffer.
++	m_impl->streams.clear();
++	if (m_impl->context) {
++		alcDestroyContext(m_impl->context);
++		m_impl->context = nullptr;
++	}
++	if (m_impl->output) {
++		alcCloseDevice(m_impl->output);
++		m_impl->output = nullptr;
++	}
++	m_impl->set_context = nullptr;
++	m_impl->get_context = nullptr;
++}
++#else
++struct MinecloniaVoiceAudio::Impl {};
++
++bool MinecloniaVoiceAudio::enablePlayback() { return false; }
++bool MinecloniaVoiceAudio::setMicrophone(bool enabled) { return !enabled; }
++std::vector<std::string> MinecloniaVoiceAudio::capture() { return {}; }
++void MinecloniaVoiceAudio::receive(std::uint16_t, std::string_view) {}
++void MinecloniaVoiceAudio::step(float) {}
++void MinecloniaVoiceAudio::clearPlayback() {}
++#endif
++
++MinecloniaVoiceAudio::MinecloniaVoiceAudio() : m_impl(std::make_unique<Impl>()) {}
++
++MinecloniaVoiceAudio::~MinecloniaVoiceAudio()
++{
++	setMicrophone(false);
++	clearPlayback();
++}
+diff --git a/src/client/mineclonia_voice_audio.h b/src/client/mineclonia_voice_audio.h
+new file mode 100644
+index 0000000..348e91f
+--- /dev/null
++++ b/src/client/mineclonia_voice_audio.h
+@@ -0,0 +1,33 @@
++// Luanti
++// SPDX-License-Identifier: LGPL-2.1-or-later
++
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <string>
++#include <string_view>
++#include <vector>
++
++// Owned and called by the client thread. Nothing opens until the player joins
++// a channel or explicitly enables their microphone.
++class MinecloniaVoiceAudio
++{
++public:
++	static constexpr std::size_t FRAME_BYTES = 320;
++
++	MinecloniaVoiceAudio();
++	~MinecloniaVoiceAudio();
++
++	bool enablePlayback();
++	bool setMicrophone(bool enabled);
++	std::vector<std::string> capture();
++	void receive(std::uint16_t peer, std::string_view frame);
++	void step(float dtime);
++	void clearPlayback();
++
++private:
++	struct Impl;
++	std::unique_ptr<Impl> m_impl;
++};
+diff --git a/src/client/mineclonia_voice_client.cpp b/src/client/mineclonia_voice_client.cpp
+new file mode 100644
+index 0000000..4aa67b5
+--- /dev/null
++++ b/src/client/mineclonia_voice_client.cpp
+@@ -0,0 +1,167 @@
++// SPDX-License-Identifier: LGPL-2.1-or-later
++
++#include "mineclonia_voice_client.h"
++#include "client.h"
++#include "config.h"
++#include "network/networkpacket.h"
++#include "settings.h"
++#include <algorithm>
++
++using namespace mineclonia_voice;
++
++static_assert(FRAME_BYTES == MinecloniaVoiceAudio::FRAME_BYTES);
++
++void MinecloniaVoiceClient::advertise()
++{
++	available = USE_SOUND;
++}
++
++void MinecloniaVoiceClient::request(Client &client, u8 target)
++{
++	if (!available || busy() || (target != QUERY && (!ready || target == room)))
++		return;
++	if (target != QUERY) {
++		setMicrophone(false);
++		m_audio.clearPlayback();
++		playback_ready = false;
++	}
++	m_requested_room = target;
++	m_request_timeout = 5.0f;
++	status = target == QUERY ? Status::Loading : Status::Pending;
++	NetworkPacket packet(TOSERVER_MCL_VOICE_CONTROL, 1);
++	packet << target;
++	client.Send(&packet);
++}
++
++void MinecloniaVoiceClient::receiveState(NetworkPacket &packet)
++{
++	if (!available || packet.getSize() < 6 + ROOM_COUNT || packet.getSize() > 512)
++		return;
++
++	u8 new_room, result;
++	u32 membership;
++	std::array<u8, ROOM_COUNT> new_counts{};
++	packet >> new_room >> membership >> result;
++	if (new_room > ROOM_COUNT || result > ROOM_FULL)
++		return;
++	for (u8 &count : new_counts) {
++		packet >> count;
++		if (count > ROOM_CAPACITY)
++			return;
++	}
++	std::map<u16, std::string> new_members;
++	const u8 count = new_room ? new_counts[new_room - 1] : 0;
++	for (u8 i = 0; i < count; ++i) {
++		u16 peer;
++		std::string name;
++		packet >> peer >> name;
++		if (name.empty() || !new_members.emplace(peer, std::move(name)).second)
++			return;
++	}
++	if (packet.hasRemainingBytes() || (new_room && (!count || !membership)))
++		return;
++
++	const bool moved = room != new_room || m_membership != membership;
++	if (moved) {
++		setMicrophone(false);
++		m_audio.clearPlayback();
++		playback_ready = false;
++		m_latest_sequence.clear();
++		m_membership = membership;
++		room = new_room;
++	} else {
++		for (auto it = m_latest_sequence.begin(); it != m_latest_sequence.end();) {
++			if (new_members.count(it->first))
++				++it;
++			else
++				it = m_latest_sequence.erase(it);
++		}
++	}
++	counts = new_counts;
++	members = std::move(new_members);
++	ready = true;
++	if (busy() && (m_requested_room == QUERY || room == m_requested_room || result == ROOM_FULL)) {
++		const bool just_joined = moved && room && room == m_requested_room && result == 0;
++		m_request_timeout = 0;
++		m_requested_room = QUERY;
++		status = result == ROOM_FULL ? Status::Full : Status::None;
++		if (just_joined)
++			setMicrophone(true);
++	}
++	if (!busy() && room && !deafened && !playback_ready && (moved || result == ROOM_FULL))
++		playback_ready = m_audio.enablePlayback();
++}
++
++void MinecloniaVoiceClient::receiveAudio(NetworkPacket &packet)
++{
++	if (!room || busy() || deafened || !playback_ready || g_settings->getBool("mute_sound") ||
++			packet.getSize() != 8 + FRAME_BYTES)
++		return;
++	u32 membership;
++	u16 peer, sequence;
++	packet >> membership >> peer >> sequence;
++	if (membership != m_membership || !members.count(peer))
++		return;
++	auto [it, inserted] = m_latest_sequence.try_emplace(peer, sequence);
++	if (!inserted) {
++		const u16 delta = sequence - it->second;
++		if (delta == 0 || delta >= 0x8000)
++			return;
++		it->second = sequence;
++	}
++	m_audio.receive(peer, packet.getRemainingNoCopy());
++}
++
++void MinecloniaVoiceClient::setMicrophone(bool enabled)
++{
++	if (enabled != transmitting)
++		transmitting = m_audio.setMicrophone(enabled) && enabled;
++	microphone_error = enabled && !transmitting;
++}
++
++void MinecloniaVoiceClient::step(Client &client, float dtime)
++{
++	if (!available)
++		return;
++	if (busy()) {
++		m_request_timeout = std::max(0.0f, m_request_timeout - dtime);
++		if (!busy()) {
++			m_requested_room = QUERY;
++			status = Status::TimedOut;
++			playback_ready = room && !deafened && m_audio.enablePlayback();
++		}
++	}
++	if (room)
++		m_audio.step(dtime);
++	if (!transmitting)
++		return;
++	for (const auto &frame : m_audio.capture()) {
++		NetworkPacket packet(TOSERVER_MCL_VOICE_AUDIO, 6 + FRAME_BYTES);
++		packet << m_membership << m_sequence++;
++		packet.putRawString(frame);
++		client.Send(&packet);
++	}
++}
++
++void MinecloniaVoiceClient::toggleMicrophone()
++{
++	if (room && !busy())
++		setMicrophone(!transmitting);
++}
++
++void MinecloniaVoiceClient::toggleDeafen()
++{
++	if (!room || busy())
++		return;
++	deafened = !deafened;
++	if (deafened)
++		m_audio.clearPlayback();
++	playback_ready = !deafened && m_audio.enablePlayback();
++}
++
++void MinecloniaVoiceClient::stop()
++{
++	setMicrophone(false);
++	m_audio.clearPlayback();
++	playback_ready = false;
++}
+diff --git a/src/client/mineclonia_voice_client.h b/src/client/mineclonia_voice_client.h
+new file mode 100644
+index 0000000..33bf83f
+--- /dev/null
++++ b/src/client/mineclonia_voice_client.h
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: LGPL-2.1-or-later
++
++#pragma once
++
++#include "irrlichttypes.h"
++#include "mineclonia_voice_audio.h"
++#include "network/mineclonia_voice.h"
++#include <array>
++#include <map>
++#include <string>
++
++class Client;
++class NetworkPacket;
++
++class MinecloniaVoiceClient
++{
++public:
++	enum class Status { None, Loading, Pending, Full, TimedOut };
++
++	void advertise();
++	void request(Client &client, u8 target);
++	void receiveState(NetworkPacket &packet);
++	void receiveAudio(NetworkPacket &packet);
++	void step(Client &client, float dtime);
++	void toggleMicrophone();
++	void toggleDeafen();
++	void stop();
++
++	bool available = false;
++	bool ready = false;
++	bool transmitting = false;
++	bool microphone_error = false;
++	bool deafened = false;
++	bool playback_ready = false;
++	u8 room = 0;
++	Status status = Status::None;
++	std::array<u8, mineclonia_voice::ROOM_COUNT> counts{};
++	std::map<u16, std::string> members;
++
++	bool busy() const { return m_request_timeout > 0; }
++
++private:
++	void setMicrophone(bool enabled);
++	MinecloniaVoiceAudio m_audio;
++	std::map<u16, u16> m_latest_sequence;
++	u32 m_membership = 0;
++	u16 m_sequence = 0;
++	u8 m_requested_room = mineclonia_voice::QUERY;
++	float m_request_timeout = 0;
++};
+diff --git a/src/defaultsettings.cpp b/src/defaultsettings.cpp
+index b993878..87d2ff5 100644
+--- a/src/defaultsettings.cpp
++++ b/src/defaultsettings.cpp
+@@ -285,6 +285,7 @@ void set_default_settings()
+ 	settings->setDefault("cloud_radius", "12");
+ 	settings->setDefault("menu_clouds", "true");
+ 	settings->setDefault("mcl_java_ui", "false");
++	settings->setDefault("mcl_voice_chat", "true");
+ 	settings->setDefault("menu_theme", "light");
+ 	settings->setDefault("translucent_liquids", "true");
+ 	settings->setDefault("console_height", "0.6");
+diff --git a/src/network/clientopcodes.cpp b/src/network/clientopcodes.cpp
+index 77f4074..b4a9d93 100644
+--- a/src/network/clientopcodes.cpp
++++ b/src/network/clientopcodes.cpp
+@@ -112,6 +112,8 @@ const ToClientCommandHandler toClientCommandTable[TOCLIENT_NUM_MSG_TYPES] =
+ 	{ "TOCLIENT_MINIMAP_MODES",            TOCLIENT_STATE_CONNECTED, &Client::handleCommand_MinimapModes }, // 0x62,
+ 	{ "TOCLIENT_SET_LIGHTING",             TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SetLighting }, // 0x63,
+ 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SpawnParticleBatch }, // 0x64,
++	{ "TOCLIENT_MCL_VOICE_STATE",          TOCLIENT_STATE_CONNECTED, &Client::handleCommand_MclVoiceState }, // 0x65
++	{ "TOCLIENT_MCL_VOICE_AUDIO",          TOCLIENT_STATE_CONNECTED, &Client::handleCommand_MclVoiceAudio }, // 0x66
+ };
+ 
+ const static ServerCommandFactory null_command_factory = { nullptr, 0, false };
+@@ -212,4 +214,6 @@ const ServerCommandFactory serverCommandFactoryTable[TOSERVER_NUM_MSG_TYPES] =
+ 	{ "TOSERVER_SRP_BYTES_A",        1, true }, // 0x51
+ 	{ "TOSERVER_SRP_BYTES_M",        1, true }, // 0x52
+ 	{ "TOSERVER_UPDATE_CLIENT_INFO", 2, true }, // 0x53
++	{ "TOSERVER_MCL_VOICE_CONTROL",  0, true }, // 0x54
++	{ "TOSERVER_MCL_VOICE_AUDIO",    0, false }, // 0x55
+ };
+diff --git a/src/network/clientpackethandler.cpp b/src/network/clientpackethandler.cpp
+index 2712dd3..fc87a4c 100644
+--- a/src/network/clientpackethandler.cpp
++++ b/src/network/clientpackethandler.cpp
+@@ -92,6 +92,13 @@ void Client::handleCommand_Hello(NetworkPacket* pkt)
+ 	m_server_ser_ver = serialization_ver;
+ 	m_proto_ver = proto_ver;
+ 
++	if (pkt->getRemainingBytes() == sizeof(u32)) {
++		u32 feature;
++		*pkt >> feature;
++		if (feature == mineclonia_voice::HELLO_MAGIC)
++			m_voice.advertise();
++	}
++
+ 	if (m_chosen_auth_mech != AUTH_MECHANISM_NONE) {
+ 		// we received a TOCLIENT_HELLO while auth was already going on
+ 		errorstream << "Client: TOCLIENT_HELLO while auth was already going on"
+@@ -131,6 +138,16 @@ void Client::handleCommand_Hello(NetworkPacket* pkt)
+ 
+ }
+ 
++void Client::handleCommand_MclVoiceState(NetworkPacket *pkt)
++{
++	m_voice.receiveState(*pkt);
++}
++
++void Client::handleCommand_MclVoiceAudio(NetworkPacket *pkt)
++{
++	m_voice.receiveAudio(*pkt);
++}
++
+ void Client::handleCommand_AuthAccept(NetworkPacket* pkt)
+ {
+ 	deleteAuthData();
+diff --git a/src/network/mineclonia_voice.h b/src/network/mineclonia_voice.h
+new file mode 100644
+index 0000000..79d2354
+--- /dev/null
++++ b/src/network/mineclonia_voice.h
+@@ -0,0 +1,17 @@
++// SPDX-License-Identifier: LGPL-2.1-or-later
++
++#pragma once
++
++#include "irrlichttypes.h"
++
++namespace mineclonia_voice
++{
++// Optional trailer on the standard Luanti 5.18 TOCLIENT_HELLO packet.
++constexpr u32 HELLO_MAGIC = 0x4D435631; // MCV1
++constexpr u8 ROOM_COUNT = 3;
++constexpr u8 ROOM_CAPACITY = 8;
++// One 20 ms frame of 16 kHz mono G.711 mu-law audio.
++constexpr u16 FRAME_BYTES = 320;
++constexpr u8 QUERY = 255;
++constexpr u8 ROOM_FULL = 1;
++}
+diff --git a/src/network/networkprotocol.h b/src/network/networkprotocol.h
+index 82bd28d..7a5cf3f 100644
+--- a/src/network/networkprotocol.h
++++ b/src/network/networkprotocol.h
+@@ -37,6 +37,7 @@ enum ToClientCommand : u16
+ 		u16 deployed protocol version
+ 		u32 supported auth methods
+ 		std::string unused (used to be username)
++		Optional Mineclonia extension: u32 mineclonia_voice::HELLO_MAGIC
+ 	*/
+ 
+ 	TOCLIENT_AUTH_ACCEPT = 0x03,
+@@ -713,7 +714,27 @@ enum ToClientCommand : u16
+ 			u8[len] serialized ParticleParameters
+ 	*/
+ 
+-	TOCLIENT_NUM_MSG_TYPES = 0x65,
++	// Mineclonia extension. Only sent to clients that request voice state.
++	TOCLIENT_MCL_VOICE_STATE = 0x65,
++	/*
++		u8 room (0 outside voice)
++		u32 membership generation
++		u8 result (0 success, 1 requested room full)
++		u8[3] room occupancy
++		For each member of this client's room:
++			u16 peer ID
++			std::string player name
++	*/
++
++	TOCLIENT_MCL_VOICE_AUDIO = 0x66,
++	/*
++		u32 recipient membership generation
++		u16 sender peer ID
++		u16 frame sequence
++		u8[320] voice frame
++	*/
++
++	TOCLIENT_NUM_MSG_TYPES = 0x67,
+ };
+ 
+ enum ToServerCommand : u16
+@@ -923,7 +944,20 @@ enum ToServerCommand : u16
+ 		v2f32 max_fs_info
+ 	*/
+ 
+-	TOSERVER_NUM_MSG_TYPES = 0x54,
++	// Mineclonia extension. Only sent after the server advertises support.
++	TOSERVER_MCL_VOICE_CONTROL = 0x54,
++	/*
++		u8 requested room (0 to leave, 255 to subscribe/query)
++	*/
++
++	TOSERVER_MCL_VOICE_AUDIO = 0x55,
++	/*
++		u32 sender membership generation
++		u16 frame sequence
++		u8[320] voice frame
++	*/
++
++	TOSERVER_NUM_MSG_TYPES = 0x56,
+ };
+ 
+ enum AuthMechanism
+diff --git a/src/network/serveropcodes.cpp b/src/network/serveropcodes.cpp
+index 3762895..fd6cb6d 100644
+--- a/src/network/serveropcodes.cpp
++++ b/src/network/serveropcodes.cpp
+@@ -95,6 +95,8 @@ const ToServerCommandHandler toServerCommandTable[TOSERVER_NUM_MSG_TYPES] =
+ 	{ "TOSERVER_SRP_BYTES_A",              TOSERVER_STATE_NOT_CONNECTED, &Server::handleCommand_SrpBytesA }, // 0x51
+ 	{ "TOSERVER_SRP_BYTES_M",              TOSERVER_STATE_NOT_CONNECTED, &Server::handleCommand_SrpBytesM }, // 0x52
+ 	{ "TOSERVER_UPDATE_CLIENT_INFO",       TOSERVER_STATE_INGAME, &Server::handleCommand_UpdateClientInfo }, // 0x53
++	{ "TOSERVER_MCL_VOICE_CONTROL",         TOSERVER_STATE_INGAME, &Server::handleCommand_MclVoiceControl }, // 0x54
++	{ "TOSERVER_MCL_VOICE_AUDIO",           TOSERVER_STATE_INGAME, &Server::handleCommand_MclVoiceAudio }, // 0x55
+ };
+ 
+ const static ClientCommandFactory null_command_factory = { nullptr, 0, false };
+@@ -213,4 +215,6 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
+ 	{ "TOCLIENT_MINIMAP_MODES",            0, true }, // 0x62
+ 	{ "TOCLIENT_SET_LIGHTING",             0, true }, // 0x63
+ 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     0, true }, // 0x64
++	{ "TOCLIENT_MCL_VOICE_STATE",          0, true }, // 0x65
++	{ "TOCLIENT_MCL_VOICE_AUDIO",          0, false }, // 0x66
+ };
+diff --git a/src/network/serverpackethandler.cpp b/src/network/serverpackethandler.cpp
+index 5e17731..2525bc4 100644
+--- a/src/network/serverpackethandler.cpp
++++ b/src/network/serverpackethandler.cpp
+@@ -260,6 +260,8 @@ void Server::handleCommand_Init(NetworkPacket* pkt)
+ 	resp_pkt << serialization_ver << u16(0) /* unused */
+ 		<< net_proto_version
+ 		<< auth_mechs << std::string_view() /* unused */;
++	if (m_voice_enabled)
++		resp_pkt << mineclonia_voice::HELLO_MAGIC;
+ 
+ 	Send(&resp_pkt);
+ 
+@@ -1794,3 +1796,131 @@ void Server::handleCommand_UpdateClientInfo(NetworkPacket *pkt)
+ 	RemoteClient *client = getClient(peer_id, CS_Invalid);
+ 	client->setDynamicInfo(info);
+ }
++
++bool Server::VoiceRateLimit::consume(double refill_per_second, double burst)
++{
++	const u64 now = porting::getTimeMs();
++	tokens = std::min(burst, tokens + (now - last_ms) * refill_per_second / 1000.0);
++	last_ms = now;
++	if (tokens < 1.0)
++		return false;
++	tokens -= 1.0;
++	return true;
++}
++
++Server::VoiceRoster Server::getVoiceRoster() const
++{
++	VoiceRoster roster;
++	for (const auto &[peer_id, peer] : m_voice_peers) {
++		if (peer.room != 0)
++			roster[peer.room - 1].push_back(peer_id);
++	}
++	for (auto &members : roster)
++		std::sort(members.begin(), members.end());
++	return roster;
++}
++
++void Server::sendVoiceState(session_t peer_id, const VoiceRoster &roster, u8 result)
++{
++	const VoicePeer &peer = m_voice_peers.at(peer_id);
++	NetworkPacket reply(TOCLIENT_MCL_VOICE_STATE, 0, peer_id);
++	reply << peer.room << peer.generation << result;
++	for (const auto &members : roster)
++		reply << static_cast<u8>(members.size());
++	if (peer.room != 0) {
++		for (session_t member_id : roster[peer.room - 1])
++			reply << member_id << m_voice_peers.at(member_id).name;
++	}
++	Send(&reply);
++}
++
++void Server::broadcastVoiceState(const VoiceRoster &roster)
++{
++	for (const auto &entry : m_voice_peers)
++		sendVoiceState(entry.first, roster);
++}
++
++void Server::removeVoicePeer(session_t peer_id)
++{
++	auto entry = m_voice_peers.find(peer_id);
++	if (entry == m_voice_peers.end())
++		return;
++
++	const bool was_in_room = entry->second.room != 0;
++	m_voice_peers.erase(entry);
++	if (was_in_room)
++		broadcastVoiceState(getVoiceRoster());
++}
++
++void Server::handleCommand_MclVoiceControl(NetworkPacket *pkt)
++{
++	using namespace mineclonia_voice;
++	if (!m_voice_enabled || pkt->getSize() != sizeof(u8))
++		return;
++
++	u8 requested_room;
++	*pkt >> requested_room;
++	if (requested_room != QUERY && requested_room > ROOM_COUNT)
++		return;
++
++	const session_t peer_id = pkt->getPeerId();
++	auto entry = m_voice_peers.find(peer_id);
++	if (entry == m_voice_peers.end()) {
++		if (requested_room != QUERY)
++			return;
++		const RemotePlayer *player = m_env->getPlayer(peer_id);
++		if (!player)
++			return;
++		entry = m_voice_peers.try_emplace(peer_id, VoicePeer{player->getName()}).first;
++	}
++
++	VoicePeer &peer = entry->second;
++	const bool leaving = requested_room == 0 && peer.room != 0;
++	if (!peer.control_budget.consume(4.0, 4.0) && !leaving)
++		return;
++
++	const auto roster = getVoiceRoster();
++	if (requested_room == QUERY || requested_room == peer.room) {
++		sendVoiceState(peer_id, roster);
++		return;
++	}
++	if (requested_room != 0 && roster[requested_room - 1].size() >= ROOM_CAPACITY) {
++		sendVoiceState(peer_id, roster, ROOM_FULL);
++		return;
++	}
++
++	peer.room = requested_room;
++	if (++m_voice_generation == 0)
++		++m_voice_generation;
++	peer.generation = m_voice_generation;
++	broadcastVoiceState(getVoiceRoster());
++}
++
++void Server::handleCommand_MclVoiceAudio(NetworkPacket *pkt)
++{
++	using namespace mineclonia_voice;
++	if (!m_voice_enabled || pkt->getSize() != sizeof(u32) + sizeof(u16) + FRAME_BYTES)
++		return;
++
++	const session_t sender_id = pkt->getPeerId();
++	const auto entry = m_voice_peers.find(sender_id);
++	if (entry == m_voice_peers.end() || entry->second.room == 0)
++		return;
++
++	u32 generation;
++	u16 sequence;
++	*pkt >> generation >> sequence;
++	VoicePeer &sender = entry->second;
++	if (generation != sender.generation || !sender.audio_budget.consume(55.0, 8.0))
++		return;
++
++	for (const auto &[peer_id, peer] : m_voice_peers) {
++		if (peer_id == sender_id || peer.room != sender.room)
++			continue;
++		NetworkPacket frame(TOCLIENT_MCL_VOICE_AUDIO,
++				sizeof(u32) + 2 * sizeof(u16) + FRAME_BYTES, peer_id);
++		frame << peer.generation << sender_id << sequence;
++		frame.putRawString(pkt->getRemainingNoCopy());
++		Send(&frame);
++	}
++}
+diff --git a/src/server.cpp b/src/server.cpp
+index a0b186f..2c7bfdd 100644
+--- a/src/server.cpp
++++ b/src/server.cpp
+@@ -297,6 +297,8 @@ Server::Server(
+ 	m_craftdef(createCraftDefManager()),
+ 	m_thread(new ServerThread(this)),
+ 	m_clients(m_con),
++	m_voice_enabled(!simple_singleplayer_mode && gamespec.id == "mineclonia" &&
++			g_settings->getBool("mcl_voice_chat")),
+ 	m_admin_chat(iface),
+ 	m_shutdown_errmsg(shutdown_errmsg),
+ 	m_modchannel_mgr(new ModChannelMgr())
+@@ -3123,6 +3125,7 @@ void Server::kickAllPlayers(AccessDeniedCode reason,
+ 
+ void Server::DisconnectPeer(session_t peer_id)
+ {
++	removeVoicePeer(peer_id);
+ 	m_modchannel_mgr->leaveAllChannels(peer_id);
+ 	m_con->DisconnectPeer(peer_id);
+ }
+@@ -3155,6 +3158,7 @@ void Server::acceptAuth(session_t peer_id, bool forSudoMode)
+ void Server::DeleteClient(session_t peer_id, ClientDeletionReason reason)
+ {
+ 	EnvAutoLock envlock(this);
++	removeVoicePeer(peer_id);
+ 	std::wstring message;
+ 	{
+ 		/*
+diff --git a/src/server.h b/src/server.h
+index 54fab49..0895e59 100644
+--- a/src/server.h
++++ b/src/server.h
+@@ -9,6 +9,7 @@
+ #include "hud_element.h" // HudElementStat
+ #include "gamedef.h"
+ #include "content/subgames.h"
++#include "network/mineclonia_voice.h"
+ #include "network/peerhandler.h"
+ #include "network/socket.h"
+ #include "util/thread.h"
+@@ -18,6 +19,7 @@
+ #include "threading/ordered_mutex.h"
+ #include "translation.h"
+ #include "sound_spec.h"
++#include <array>
+ #include <atomic>
+ #include <csignal>
+ #include <string>
+@@ -242,6 +244,8 @@ public:
+ 	void handleCommand_SrpBytesM(NetworkPacket* pkt);
+ 	void handleCommand_HaveMedia(NetworkPacket *pkt);
+ 	void handleCommand_UpdateClientInfo(NetworkPacket *pkt);
++	void handleCommand_MclVoiceControl(NetworkPacket *pkt);
++	void handleCommand_MclVoiceAudio(NetworkPacket *pkt);
+ 
+ 	void ProcessData(NetworkPacket *pkt);
+ 
+@@ -646,6 +650,12 @@ private:
+ 
+ 	// When called, connection mutex should be locked
+ 	RemoteClient* getClient(session_t peer_id, ClientState state_min = CS_Active);
++
++	using VoiceRoster = std::array<std::vector<session_t>, mineclonia_voice::ROOM_COUNT>;
++	VoiceRoster getVoiceRoster() const;
++	void sendVoiceState(session_t peer_id, const VoiceRoster &roster, u8 result = 0);
++	void broadcastVoiceState(const VoiceRoster &roster);
++	void removeVoicePeer(session_t peer_id);
+ 	RemoteClient* getClientNoEx(session_t peer_id, ClientState state_min = CS_Active);
+ 
+ 	// When called, environment mutex should be locked
+@@ -744,6 +754,26 @@ private:
+ 
+ 	std::unordered_map<session_t, std::string> m_formspec_state_data;
+ 
++	struct VoiceRateLimit {
++		double tokens;
++		u64 last_ms = 0;
++
++		bool consume(double refill_per_second, double burst);
++	};
++
++	struct VoicePeer {
++		std::string name;
++		u8 room = 0;
++		u32 generation = 0;
++		VoiceRateLimit control_budget{4};
++		VoiceRateLimit audio_budget{8};
++	};
++
++	// These entries only exist for authenticated peers that subscribed to voice.
++	const bool m_voice_enabled;
++	u32 m_voice_generation = 0;
++	std::unordered_map<session_t, VoicePeer> m_voice_peers;
++
+ 	/*
+ 		Random stuff
+ 	*/

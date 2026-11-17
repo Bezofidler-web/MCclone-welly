@@ -22,40 +22,45 @@ local cz2 = { -0.125, -0.5, 0.125, 0.125, 1.01, 0.5 }
 
 local on_rotate = screwdriver.rotate_simple
 
-local function update_gate(pos, node)
-	if node.name:sub(-5) == "_open" then
-		node.name = node.name:gsub("_open", "")
-	else
-		node.name = node.name.."_open"
+local function is_open(node)
+	return node.name:sub(-5) == "_open"
+end
+
+local function set_open(pos, node, open, clicker)
+	if is_open(node) == open then return end
+
+	local defs = core.registered_nodes[node.name]._mcl_fences_sounds or {}
+	local action = open and "open" or "close"
+	local sound = defs[action] or {}
+	local event = not sound.spec and ("block.fence_gate." .. action) or nil
+
+	-- Open away from the player when they approach the front of the gate.
+	if open and clicker and clicker:is_player() then
+		local facing = core.dir_to_facedir(clicker:get_look_dir())
+		if (facing + 2) % 4 == node.param2 then node.param2 = facing end
 	end
-	core.set_node(pos, node)
+
+	node.name = open and node.name .. "_open" or node.name:sub(1, -6)
+	core.swap_node(pos, node)
 	mcl_redstone._notify_observer_neighbours(pos)
+	mcl_sounds.play_door_event(pos, event, sound.spec or ("doors_fencegate_" .. action), sound.gain or 0.3)
 end
 
-local function play_sound(pos, node, state)
-	local sounddefs = {}
-	local defs = core.registered_nodes[node.name]
-	if defs and defs._mcl_fences_sounds then
-		sounddefs = defs._mcl_fences_sounds[state]
-	end
-	local spec = sounddefs.spec or ("doors_fencegate_"..state)
-	local gain = sounddefs.gain or 0.3
-	core.sound_play(spec, { gain = gain, max_hear_distance = 16, pos = pos }, true)
+local function toggle_gate(pos, node, clicker)
+	set_open(pos, node, not is_open(node), clicker)
 end
 
-local function punch_gate(pos, node)
-	local meta = core.get_meta(pos)
-	local state = meta:get_int("state")
-	if state == 1 then
-		state = 0
-		play_sound(pos, node, "close")
-	else
-		state = 1
-		play_sound(pos, node, "open")
-	end
-	update_gate(pos, node)
-	meta:set_int("state", state)
-end
+local gate_redstone = {
+	connects_to = function() return true end,
+	init = function() end,
+	update = function(pos, node)
+		local meta = core.get_meta(pos)
+		local power = mcl_redstone.get_power(pos) ~= 0 and 1 or 0
+		if meta:get_int("redstone_power") == power then return end
+		meta:set_int("redstone_power", power)
+		set_open(pos, node or core.get_node(pos), power ~= 0)
+	end,
+}
 
 local function handle_textures(block, definitions)
     local tiles = definitions.tiles[1]
@@ -126,29 +131,11 @@ local tpl_fence_gates = {
 		type = "fixed",
 		fixed = {{ -0.5, -0.1875, -0.0625, 0.5, 0.5, 0.0625 }}
 	},
-	on_construct = function(pos)
-		local meta = core.get_meta(pos)
-		meta:set_int("state", 0)
-	end,
-	_mcl_redstone = {
-		connects_to = function (node, dir)
-			return true
-		end,
-		update = function (pos)
-			if mcl_redstone.get_power (pos) ~= 0 then
-				local node = core.get_node (pos)
-				punch_gate (pos, node)
-			end
-		end,
-		init = function() end,
-	},
+	_mcl_redstone = gate_redstone,
 	on_rotate = on_rotate,
-	on_rightclick = function(pos, node, _)
-		punch_gate(pos, node)
-	end,
+	on_rightclick = toggle_gate,
 	_on_wind_charge_hit = function(pos)
-		local node = core.get_node(pos)
-			punch_gate(pos, node)
+		toggle_gate(pos, core.get_node(pos))
 		return true
 	end
 }
@@ -165,37 +152,23 @@ local tpl_fence_gates_open = {
 		fixed = {
 			{ -0.5, -0.1875, -0.0625, -0.375, 0.5, 0.0625 },
 			{ 0.375, -0.1875, -0.0625, 0.5, 0.5, 0.0625 },
-			{ -0.5, 0.25, 0.0625, -0.375, 0.4375, 0.375 },
-			{ -0.5, -0.125, 0.0625, -0.375, 0.0625, 0.375 },
-			{ 0.375, 0.25, 0.0625, 0.5, 0.4375, 0.5 },
-			{ 0.375, -0.125, 0.0625, 0.5, 0.0625, 0.5 },
-			{ -0.5, -0.125, 0.375, -0.375, 0.4375, 0.5 },
-			{ 0.375, 0.0625, 0.5, 0.5, 0.25, 0.375 }
+			{ -0.5, 0.25, 0.0625, -0.375, 0.4375, 0.3125 },
+			{ -0.5, -0.125, 0.0625, -0.375, 0.0625, 0.3125 },
+			{ 0.375, 0.25, 0.0625, 0.5, 0.4375, 0.3125 },
+			{ 0.375, -0.125, 0.0625, 0.5, 0.0625, 0.3125 },
+			{ -0.5, -0.125, 0.3125, -0.375, 0.4375, 0.4375 },
+			{ 0.375, -0.125, 0.3125, 0.5, 0.4375, 0.4375 }
 		}
 	},
 	selection_box = {
 		type = "fixed",
 		fixed = {{ -0.5, -0.1875, -0.0625, 0.5, 0.5, 0.0625 }}
 	},
-	on_rightclick = function(pos, node, _)
-		punch_gate(pos, node)
-	end,
-	_mcl_redstone = {
-		connects_to = function (node, dir)
-			return true
-		end,
-		update = function (pos)
-			if mcl_redstone.get_power (pos) == 0 then
-				local node = core.get_node (pos)
-				punch_gate (pos, node)
-			end
-		end,
-		init = function() end,
-	},
+	on_rightclick = toggle_gate,
+	_mcl_redstone = gate_redstone,
 	on_rotate = on_rotate,
 	_on_wind_charge_hit = function(pos)
-		local node = core.get_node(pos)
-			punch_gate(pos, node)
+		toggle_gate(pos, core.get_node(pos))
 		return true
 	end
 }

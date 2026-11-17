@@ -1,17 +1,20 @@
-# Copy this file to local/friends-server.conf before editing.
-# Use exact Luanti player names. Separate friends with commas, e.g. Alex, Sam_2.
-# The host is included automatically.
+# Set the host's exact player name or pass -HostName to Start-FriendsServer.ps1.
 name =
+# Optional. Existing accounts can also be allowed here, separated by commas.
 mcl_friends_allowed_names =
 mcl_friends_only = true
 
-# Set both fields for one new account at a time, starting with the host.
-# Give each account a fresh temporary password and change it after joining.
-# Clear both fields when registration is finished.
-mcl_friends_invited_name =
-default_password =
+# Invite new players from Server Controls → Accounts while the world is running.
+# Set this to the address friends can reach to enable pasteable private invites.
+# Example: mcl_friends_invite_address = play.example.org:30000
+mcl_friends_invite_address =
 disallow_empty_password = true
+server_name = Mineclonia with Friends
 server_announce = false
+port = 30000
+
+# Channel voice chat for players using the Mineclonia client build.
+mcl_voice_chat = true
 
 # New worlds use Mineclonia's custom map generator, which includes Dappled Forest.
 mg_name = singlenode

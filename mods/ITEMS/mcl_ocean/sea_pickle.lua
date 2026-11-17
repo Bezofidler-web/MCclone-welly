@@ -74,24 +74,27 @@ local function register_sea_pickle (ontop, parent)
 	local canonical = "mcl_ocean:sea_pickle_1_"..ontop
 	local canonical_off = "mcl_ocean:sea_pickle_1_off_"..ontop
 	local light_strength = { 6, 9, 12, core.LIGHT_MAX }
+	local parent_def = assert(core.registered_nodes[parent], "Sea pickle registered w/o valid parent")
+	local tile = parent_def.tiles[1]
+	local ground_image = type(tile) == "table" and (tile.name or tile.image) or tile
 
 	for s=1,4 do
 		local desc, doc_desc, doc_use, doc_create, tt_help, nici, img, img_off, on_place, cookoutput
 		if s == 1 and ontop == "dead_brain_coral_block" then
 			desc = S("Sea Pickle")
-			doc_desc = S("Sea pickles grow on dead brain coral blocks and provide light when underwater. They come in 4 sizes that vary in brightness.")
-			doc_use = S("It can only be placed on top of dead brain coral blocks. Placing a sea pickle on another sea pickle will make it grow and brighter.")
-			tt_help = S("Glows in the water").."\n"..S("4 possible sizes").."\n"..S("Grows on dead brain coral block")
+			doc_desc = S("Sea pickles grow on coral blocks and several ocean floor materials. They provide light when underwater.")
+			doc_use = S("Place up to four sea pickles on the same block to increase the brightness.")
+			tt_help = S("Glows in the water").."\n"..S("4 possible sizes")
 			img = "mcl_ocean_sea_pickle_item.png"
 			cookoutput = "mcl_dyes:lime"
 			on_place = sea_pickle_on_place
 		else
 			doc_create = false
 			nici = 1
-			img = "mcl_ocean_"..ontop..".png^(mcl_ocean_sea_pickle_"..s.."_anim.png^[verticalframe:2:1)"
+			img = ground_image.."^(mcl_ocean_sea_pickle_"..s.."_anim.png^[verticalframe:2:1)"
 			cookoutput = nil
 		end
-		img_off = "mcl_ocean_"..ontop..".png^mcl_ocean_sea_pickle_"..s.."_off.png"
+		img_off = ground_image.."^mcl_ocean_sea_pickle_"..s.."_off.png"
 		local next_on, next_off
 		if s < 4 then
 			next_on = "mcl_ocean:sea_pickle_" .. tostring(s + 1) .. "_" .. ontop
@@ -119,11 +122,14 @@ local function register_sea_pickle (ontop, parent)
 			}
 
 			for _, v in pairs(possible_position) do
-				sea_pickle_on_place(
-					ItemStack("mcl_ocean:sea_pickle"),
-					placer,
-					{type="node", under=vector.offset(pos,v.x,v.y,v.z), above=vector.offset(pos,v.x,v.y-1,v.z)},
-					math.random(1, 3))
+				local ground = vector.add(pos, v)
+				local above = vector.offset(ground, 0, 1, 0)
+				if core.get_item_group(core.get_node(above).name, "water") > 0 then
+					sea_pickle_on_place(
+						ItemStack(canonical), placer,
+						{type = "node", under = ground, above = above},
+						math.random(1, 3))
+				end
 			end
 		end
 
@@ -135,9 +141,6 @@ local function register_sea_pickle (ontop, parent)
 			end
 			spread_sea_pickle(pos, placer)
 		end
-
-		local parent_def = core.registered_nodes[parent]
-		assert (parent_def, "Sea pickle registered w/o valid parent")
 
 		core.register_node("mcl_ocean:sea_pickle_"..s.."_"..ontop, {
 			description = desc,

@@ -1,11 +1,47 @@
 local NIGHT_VISION_RATIO = 0.45
 local S = core.get_translator(core.get_current_modname())
 local vibrant_setting = "mcl_weather:vibrant_lighting"
+local clouds_setting = "mcl_weather:enable_clouds"
+local clear_cloud_color = "#FFF0F0E5"
+local weather_cloud_colors = { rain = "#5D5D5FE8", thunder = "#3D3D3FE8" }
+local water_at_eye = {}
+local default_sky_color = "#78A7FF"
+local default_horizon_color = "#C0D8FF"
+local default_water_fog = "#050533"
+local sky_sample_spacing = 8
+
+-- Overworld water fog attributes from Java Edition 26.3. The order matters
+-- for the native mapgen, where warmer ocean aliases overlap.
+local water_fog_biomes = {
+	{ biomes = { "Swamp" }, color = "#232317", distance_factor = 0.85 },
+	{ biomes = { "MangroveSwamp" }, color = "#4D7A60", distance_factor = 0.85 },
+	{ biomes = { "CherryGrove" }, color = "#5DB7EF" },
+	{ biomes = { "DappledForest" }, color = "#375154" },
+	{ biomes = { "PaleGarden" }, color = "#556980" },
+	{ biomes = { "WarmOcean" }, color = "#041F33" },
+	{ biomes = { "LukewarmOcean", "DeepLukewarmOcean" }, color = "#041633" },
+}
+
+core.register_on_mods_loaded (function ()
+	for _, profile in ipairs (water_fog_biomes) do
+		profile.matches = mcl_biome_dispatch.make_biome_test (profile.biomes)
+	end
+end)
+
+local function get_water_fog (pos)
+	local biome = mcl_biome_dispatch.get_biome_name_nosample (pos)
+	for _, profile in ipairs (water_fog_biomes) do
+		if profile.matches (biome) then
+			return profile.color, profile.distance_factor or 1
+		end
+	end
+	return default_water_fog, 1
+end
 
 local standard_lighting = {
-	shadows = { intensity = 0.33, tint = "#000000" },
-	volumetric_light = { strength = 0.2 },
-	bloom = { intensity = 0.05, radius = 1, strength_factor = 1 },
+	shadows = { intensity = 0.30, tint = "#000000" },
+	volumetric_light = { strength = 0.12 },
+	bloom = { intensity = 0.025, radius = 1, strength_factor = 1 },
 	exposure = {
 		luminance_min = -3.5,
 		luminance_max = -2.5,
@@ -13,27 +49,27 @@ local standard_lighting = {
 		speed_dark_bright = 1500,
 		speed_bright_dark = 700,
 	},
-	saturation = 1.1,
+	saturation = 1.0,
 }
 
 local vibrant_lighting = {
 	overworld = {
-		shadows = { intensity = 0.52, tint = "#263958" },
-		volumetric_light = { strength = 0.29 },
-		bloom = { intensity = 0.076, radius = 1.25, strength_factor = 1.05 },
-		saturation = 1.17,
+		shadows = { intensity = 0.45, tint = "#39485D" },
+		volumetric_light = { strength = 0.20 },
+		bloom = { intensity = 0.045, radius = 1, strength_factor = 1.0 },
+		saturation = 1.06,
 	},
 	nether = {
-		shadows = { intensity = 0.13, tint = "#4A2325" },
+		shadows = { intensity = 0, tint = "#000000" },
 		volumetric_light = { strength = 0 },
-		bloom = { intensity = 0.09, radius = 1.32, strength_factor = 1.06 },
-		saturation = 1.09,
+		bloom = { intensity = 0.05, radius = 1.1, strength_factor = 1.0 },
+		saturation = 1.04,
 	},
 	["end"] = {
-		shadows = { intensity = 0.18, tint = "#35334E" },
+		shadows = { intensity = 0, tint = "#000000" },
 		volumetric_light = { strength = 0 },
-		bloom = { intensity = 0.07, radius = 1.28, strength_factor = 1.06 },
-		saturation = 1.07,
+		bloom = { intensity = 0.035, radius = 1.05, strength_factor = 1.0 },
+		saturation = 1.02,
 	},
 }
 local vibrant_exposure = {
@@ -59,15 +95,43 @@ local function set_lighting (player)
 	end
 end
 
-local function fog_start (player, start)
-	return vibrant_enabled (player) and start or -1
+local function sky_fog (player, start, distance, color)
+	local fog = { fog_color = color or "#00000000" }
+	-- Darkness owns the fog range and pulsating fog start while it is active.
+	if player:get_meta ():get_int ("darkness") ~= 1 then
+		fog.fog_start = start
+		fog.fog_distance = distance or -1
+	end
+	return fog
+end
+
+local function get_water_at_eye (player, pos)
+	local offset = player:get_eye_offset ()
+	-- The eye offset uses tenths of a node.
+	local height = player:get_properties ().eye_height + offset.y / 10
+	local name = core.get_node (vector.offset (pos, 0, height, 0)).name
+	if core.get_item_group (name, "water") ~= 0 then
+		return name:find ("river_water", 1, true) and "river" or "water"
+	end
+	return false
+end
+
+local function storm_light_ratio ()
+	if mcl_weather.skycolor.current_layer_name () == "lightning" then
+		return 1
+	end
+	local factor = mcl_weather.get_current_light_factor ()
+	if factor then
+		local daylight = 1 - math.abs (0.5 - core.get_timeofday ())
+		return math.max (0.2, daylight * factor - 0.15)
+	end
 end
 
 mcl_player.register_player_setting (vibrant_setting, {
 	type = "boolean",
 	section = "Graphics",
 	short_desc = S ("Vibrant lighting"),
-	long_desc = S ("Enhances shadows, colour and fog. Enable the Luanti graphics effects for bloom, light shafts and water reflections."),
+	long_desc = S ("Tinted shadows and more atmospheric fog. Use the Vibrant client profile for shadows, bloom and light shafts."),
 	ui_default = "false",
 	on_change = function (player)
 		set_lighting (player)
@@ -75,11 +139,14 @@ mcl_player.register_player_setting (vibrant_setting, {
 	end,
 })
 
-mcl_player.register_player_setting("mcl_weather:enable_clouds", {
+mcl_player.register_player_setting(clouds_setting, {
 	type = "boolean",
 	section = "Graphics",
-	short_desc = S("Enable clouds"),
+	short_desc = S("Clouds"),
 	ui_default = "true",
+	on_change = function (player)
+		mcl_weather.skycolor.update_sky_color ({player})
+	end,
 })
 
 function mcl_weather.set_sky_box_clear(player, sky, fog)
@@ -87,16 +154,14 @@ function mcl_weather.set_sky_box_clear(player, sky, fog)
 		return
 	end
 
-	local pos = player:get_pos()
-	if core.get_item_group(core.get_node(vector.new(pos.x,pos.y+1.5,pos.z)).name, "water") ~= 0 then return end
 	local sc = {
-			day_sky = "#7BA4FF",
-			day_horizon = "#C0D8FF",
-			dawn_sky = "#7BA4FF",
-			dawn_horizon = "#C0D8FF",
+			day_sky = default_sky_color,
+			day_horizon = default_horizon_color,
+			dawn_sky = default_sky_color,
+			dawn_horizon = default_horizon_color,
 			night_sky = "#000000",
 			night_horizon = "#4A6790",
-			indoors = "#C0D8FF",
+			indoors = default_horizon_color,
 			fog_sun_tint = "#ff5f33",
 			fog_moon_tint = nil,
 			fog_tint_type = "custom"
@@ -112,10 +177,8 @@ function mcl_weather.set_sky_box_clear(player, sky, fog)
 	player:set_sky({
 		type = "regular",
 		sky_color = sc,
-		fog = {
-			fog_start = fog_start (player, 0.50),
-		},
-		clouds =  mcl_player.get_player_setting(player, "mcl_weather:enable_clouds", true),
+		fog = sky_fog (player, vibrant_enabled (player) and 0.89 or -1),
+		clouds = mcl_player.get_player_setting (player, clouds_setting, true),
 		auto_dim_skybox = false,
 	})
 end
@@ -125,14 +188,10 @@ function mcl_weather.set_sky_color(player, def)
 		return
 	end
 
-	local pos = player:get_pos()
-	if core.get_item_group(core.get_node(vector.offset(pos, 0, 1.5, 0)).name, "water") ~= 0 then return end
 	player:set_sky({
 		type = def.type,
 		sky_color = def.sky_color,
-        fog = {
-			fog_start = fog_start (player, def.fog_start or 0.33),
-		},
+		fog = sky_fog (player, def.fog_start or -1, def.fog_distance),
 		clouds = def.clouds,
 		auto_dim_skybox = false,
 	})
@@ -148,9 +207,38 @@ local function get_fog_color (pos)
 	return mcl_biome_dispatch.get_fog_color (nodepos)
 end
 
-local function get_both_colors (pos)
-	local nodepos = mcl_util.get_nodepos (pos)
-	return mcl_biome_dispatch.get_sky_and_fog_colors (nodepos)
+local function add_weighted_color (sum, color, weight)
+	local r, g, b = core.colorspec_to_bytes (color):byte (1, 3)
+	sum.r = sum.r + r * weight
+	sum.g = sum.g + g * weight
+	sum.b = sum.b + b * weight
+end
+
+local function rgb_hex (color)
+	return ("#%02X%02X%02X"):format (
+		math.floor (color.r + 0.5), math.floor (color.g + 0.5), math.floor (color.b + 0.5))
+end
+
+local function get_blended_sky_colors (pos)
+	local x0 = math.floor (pos.x / sky_sample_spacing) * sky_sample_spacing
+	local z0 = math.floor (pos.z / sky_sample_spacing) * sky_sample_spacing
+	local y = math.floor (pos.y + 0.5)
+	local dx = (pos.x - x0) / sky_sample_spacing
+	local dz = (pos.z - z0) / sky_sample_spacing
+	-- Fall back to the camera's own biome when a neighbouring chunk hasn't loaded.
+	local local_sky, local_fog = mcl_biome_dispatch.get_sky_and_fog_colors (mcl_util.get_nodepos (pos))
+	local sky_total = {r = 0, g = 0, b = 0}
+	local fog_total = {r = 0, g = 0, b = 0}
+	for i = 0, 1 do
+		for j = 0, 1 do
+			local sky, fog = mcl_biome_dispatch.get_sky_and_fog_colors (
+				vector.new (x0 + i * sky_sample_spacing, y, z0 + j * sky_sample_spacing))
+			local weight = (i == 0 and 1 - dx or dx) * (j == 0 and 1 - dz or dz)
+			add_weighted_color (sky_total, sky or local_sky or default_sky_color, weight)
+			add_weighted_color (fog_total, fog or local_fog or default_horizon_color, weight)
+		end
+	end
+	return rgb_hex (sky_total), rgb_hex (fog_total)
 end
 
 mcl_weather.skycolor = {
@@ -241,35 +329,41 @@ mcl_weather.skycolor = {
 		for _, player in ipairs(players) do
 			local pos = player:get_pos()
 			local dim = mcl_worlds.pos_to_dimension(pos)
-			local has_weather = (mcl_worlds.has_weather(pos) and (mcl_weather.state =="rain" or mcl_weather.state == "thunder") and mcl_weather.has_snow(pos)) or ((mcl_weather.state =="rain" or mcl_weather.state == "thunder") and mcl_weather.has_rain(pos))
-			local checkname = core.get_node(vector.new(pos.x,pos.y+1.5,pos.z)).name
-			if core.get_item_group(checkname, "water") ~= 0 then
-				local water_color = "#3F76E4"
-				if checkname == "mclx_core:river_water_source"
-					or checkname == "mclx_core:river_water_flowing" then
-					water_color = "#0084FF"
+			local vibrant = vibrant_enabled (player)
+			local water = get_water_at_eye (player, pos)
+			water_at_eye[player] = water
+			if water then
+				local water_color, distance_factor = "#1D476D", 1
+				if dim == "overworld" then
+					water_color, distance_factor = get_water_fog (mcl_util.get_nodepos (pos))
 				end
-				player:set_sky({ type = "regular",
-					sky_color = {
-						day_sky = water_color,
-						day_horizon = water_color,
-						dawn_sky = water_color,
-						dawn_horizon = water_color,
-						night_sky = water_color,
-						night_horizon = water_color,
-						indoors = water_color,
-						fog_sun_tint = water_color,
-						fog_moon_tint = water_color,
-						fog_tint_type = "custom"
-					},
-					fog = { fog_start = fog_start (player, 0.22) },
+				local night_vision = player:get_meta ():get_int ("night_vision") == 1
+				local distance = math.floor ((night_vision and 88 or 48) * distance_factor + 0.5)
+				local fog_start = night_vision and 0.35 or 0.10
+				player:set_sky({
+					type = "plain",
+					base_color = water_color,
+					fog = sky_fog (player, fog_start, distance, water_color),
 					clouds = false,
+					auto_dim_skybox = false,
 				})
-			end
-			if dim == "overworld" then
-				local biomesky, biomefog = get_both_colors (pos)
+				player:set_sun ({visible = false, sunrise_visible = false})
+				player:set_moon ({visible = false})
+				player:set_stars ({visible = false})
+				local light = dim == "end" and 0.5 or dim == "overworld" and storm_light_ratio () or nil
+				mcl_weather.skycolor.override_day_night_ratio (player, light)
+			elseif dim == "overworld" then
+				local overcast = weather_cloud_colors[mcl_weather.state]
+				local has_snow = overcast and mcl_weather.has_snow (pos)
+				local has_weather = overcast and (has_snow or mcl_weather.has_rain (pos))
+				local cloud_color = clear_cloud_color
+				if has_weather then
+					cloud_color = has_snow and "#ADADADE8" or overcast
+				end
+				player:set_clouds ({color = cloud_color})
 				if (mcl_weather.state == "none") then
 					-- Clear weather
+					local biomesky, biomefog = get_blended_sky_colors (pos)
 					mcl_weather.set_sky_box_clear(player,biomesky,biomefog)
 					player:set_sun({visible = true, sunrise_visible = true})
 					player:set_moon({visible = true})
@@ -289,12 +383,14 @@ mcl_weather.skycolor = {
 							night_sky = night_color,
 							night_horizon = night_color,
 						},
-						clouds =  mcl_player.get_player_setting(player, "mcl_weather:enable_clouds", true),
+						fog_start = vibrant and 0.78 or -1,
+						clouds = mcl_player.get_player_setting (player, clouds_setting, true),
 					})
 					player:set_sun({visible = false, sunrise_visible = false})
 					player:set_moon({visible = false})
 					player:set_stars({visible = false})
-				elseif has_weather then
+					mcl_weather.skycolor.override_day_night_ratio (player, storm_light_ratio ())
+				else
 					-- Weather skies
 					local day_color = mcl_weather.skycolor.get_sky_layer_color(0.5)
 					local dawn_color = mcl_weather.skycolor.get_sky_layer_color(0.75)
@@ -309,27 +405,14 @@ mcl_weather.skycolor = {
 							night_sky = night_color,
 							night_horizon = night_color,
 						},
-						clouds =  mcl_player.get_player_setting(player, "mcl_weather:enable_clouds", true),
+						fog_start = vibrant and 0.58 or 0.72,
+						clouds = mcl_player.get_player_setting (player, clouds_setting, true),
 					})
 					player:set_sun({visible = false, sunrise_visible = false})
 					player:set_moon({visible = false})
 					player:set_stars({visible = false})
 
-					local lf = mcl_weather.get_current_light_factor()
-					if mcl_weather.skycolor.current_layer_name() == "lightning" then
-						mcl_weather.skycolor.override_day_night_ratio(player, 1)
-					elseif lf then
-						-- This used to be blatantly wrong and there appears to be another
-						-- fairly complex solution around so I will explain what it's doing (now):
-						-- The light is basically derived by the distance of the current time to
-						-- 0.5 which means midday/noon. i.e. the key here is 1 - math.abs(0.5 - w)
-						-- the rest is just modifications and a minimum light level of 0.2
-						local w = core.get_timeofday()
-						local light = math.max(0.2,((1 - math.abs(0.5 - w)) * lf) - 0.15)
-						mcl_weather.skycolor.override_day_night_ratio(player, light)
-					else
-						mcl_weather.skycolor.override_day_night_ratio(player, nil)
-					end
+					mcl_weather.skycolor.override_day_night_ratio (player, storm_light_ratio ())
 				end
 			elseif dim == "end" then
 				local biomesky = get_sky_color (pos) or "#000000"
@@ -337,7 +420,7 @@ mcl_weather.skycolor = {
 				player:set_sky({ type = "skybox",
 					base_color = biomesky,
 					textures = {t,t,t,t,t,t},
-					fog = { fog_start = fog_start (player, 0.42) },
+					fog = sky_fog (player, vibrant and 0.67 or 0.78),
 					clouds = false,
 				})
 				player:set_sun({visible = false , sunrise_visible = false})
@@ -360,7 +443,8 @@ mcl_weather.skycolor = {
 						fog_moon_tint = biomefog,
 						fog_tint_type = "custom"
 					},
-					fog_start = 0.22,
+					fog_start = vibrant and 0.32 or 0.48,
+					fog_distance = 96,
 					clouds = false,
 				})
 				player:set_sun({visible = false , sunrise_visible = false})
@@ -371,6 +455,7 @@ mcl_weather.skycolor = {
 				player:set_sky({ type = "plain",
 					base_color = "#000000",
 					clouds = false,
+					fog = sky_fog (player, -1),
 				})
 				player:set_sun({visible = false, sunrise_visible = false})
 				player:set_moon({visible = false})
@@ -435,6 +520,7 @@ mcl_weather.skycolor = {
 }
 
 local timer = 0
+local water_timer = 0
 core.register_globalstep(function(dtime)
 	if mcl_weather.skycolor.active ~= true or #core.get_connected_players() == 0 then
 		return
@@ -451,8 +537,25 @@ core.register_globalstep(function(dtime)
 	if timer >= mcl_weather.skycolor.update_interval then
 		mcl_weather.skycolor.update_sky_color()
 		timer = 0
+		water_timer = 0
+		return
 	end
 
+	-- Refresh immediately after the camera crosses water instead of waiting
+	-- for the next periodic weather and biome update.
+	water_timer = water_timer + dtime
+	if water_timer >= 0.2 then
+		water_timer = 0
+		local changed = {}
+		for _, player in ipairs (mcl_weather.skycolor.utils.get_players ()) do
+			if get_water_at_eye (player, player:get_pos ()) ~= water_at_eye[player] then
+				changed[#changed + 1] = player
+			end
+		end
+		if #changed > 0 then
+			mcl_weather.skycolor.update_sky_color (changed)
+		end
+	end
 end)
 
 local function initsky(player)
@@ -462,11 +565,16 @@ local function initsky(player)
 		mcl_weather.skycolor.force_update = true
 	end
 
-	player:set_clouds(mcl_worlds.get_cloud_parameters() or {height=mcl_worlds.layer_to_y(127), speed={x=-2, z=0}, thickness=4, color="#FFF0FEF"})
+	local clouds = mcl_worlds.get_cloud_parameters ()
+	clouds.color = clear_cloud_color
+	player:set_clouds (clouds)
 end
 
 core.register_on_joinplayer(initsky)
 core.register_on_respawnplayer(initsky)
+core.register_on_leaveplayer (function (player)
+	water_at_eye[player] = nil
+end)
 
 mcl_worlds.register_on_dimension_change(function(player)
 	set_lighting (player)

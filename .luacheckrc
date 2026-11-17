@@ -106,6 +106,7 @@ globals = {
 	"mcl_formspec",
 	"mcl_formspec_prepend",
 	"mcl_furnaces",
+	"mcl_friends",
 	"mcl_gamemode",
 	"mcl_grindstone",
 	"mcl_hbarmor",

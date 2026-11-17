@@ -1,0 +1,35 @@
+# Fancy profile for Luanti 5.18. Crisp textures, 3D clouds and transparent foliage.
+enable_fog = true
+directional_colored_fog = true
+fog_start = 0.90
+viewing_range = 192
+enable_3d_clouds = true
+soft_clouds = false
+cloud_radius = 16
+smooth_lighting = true
+display_gamma = 1.22
+leaves_style = fancy
+translucent_liquids = true
+enable_waving_water = false
+enable_water_reflections = false
+enable_dynamic_shadows = false
+enable_post_processing = false
+enable_bloom = false
+enable_volumetric_lighting = false
+mip_map = true
+anisotropic_filter = true
+bilinear_filter = false
+trilinear_filter = false
+enable_dig_particles = true
+node_highlighting = box
+selectionbox_width = 1
+fov = 70
+view_bobbing_amount = 0.65
+pitch_move = true
+
+# Keyboard defaults for E inventory, Left Ctrl sprint, F5 perspective, F3 debug.
+keymap_inventory = SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3
+keymap_aux1 = SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2
+keymap_camera_mode = SYSTEM_SCANCODE_62
+keymap_toggle_debug = SYSTEM_SCANCODE_60
+keymap_toggle_fog = SYSTEM_SCANCODE_64

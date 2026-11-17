@@ -25,8 +25,8 @@ function mcl_doors:register_door(name, def)
 	def.groups.unsticky = 1
 	def.groups.door = 1
 
-	if not def.sound_open then def.sound_open = "doors_door_open" end
-	if not def.sound_close then def.sound_close = "doors_door_close" end
+	local sound_open_family = def._java_sound_family or (not def.sound_open and "wooden_door")
+	local sound_close_family = def._java_sound_family or (not def.sound_close and "wooden_door")
 
 	local box = {{-0.5, -0.5, -0.5, 0.5, 0.5, -0.3125}}
 
@@ -103,18 +103,18 @@ function mcl_doors:register_door(name, def)
 		mcl_redstone._notify_observer_neighbours(pos_top)
 		mcl_redstone._notify_observer_neighbours(pos_bottom)
 
-		local door_switching_sound
-		if meta1:get_int("is_open") == 1 then
-			door_switching_sound = def.sound_close
-			meta1:set_int("is_open", 0)
-			meta2:set_int("is_open", 0)
-		else
-			door_switching_sound = def.sound_open
-			meta1:set_int("is_open", 1)
-			meta2:set_int("is_open", 1)
-		end
+		local opening = meta1:get_int("is_open") == 0
+		meta1:set_int("is_open", opening and 1 or 0)
+		meta2:set_int("is_open", opening and 1 or 0)
 
-		core.sound_play(door_switching_sound, {pos = pos, gain = 0.5, max_hear_distance = 16}, true)
+		local family = opening and sound_open_family or nil
+		local sound = def.sound_open or "doors_door_open"
+		if not opening then
+			family = sound_close_family
+			sound = def.sound_close or "doors_door_close"
+		end
+		local event = family and ("block." .. family .. (opening and ".open" or ".close")) or nil
+		mcl_sounds.play_door_event(dir == 1 and pos or pos_top, event, sound, 0.5)
 	end
 
 	local function swap_door (pos)
@@ -149,7 +149,7 @@ function mcl_doors:register_door(name, def)
 		local power = math.max(power_top, power_bottom)
 		local previous_power = math.max(meta_top:get_int("redstone_power"), meta_bottom:get_int("redstone_power"))
 
-		if power ~= previous_power then
+		if (power ~= 0) ~= (previous_power ~= 0) then
 			if power ~= 0 then
 				open(pos_bottom)
 			else
@@ -240,6 +240,7 @@ function mcl_doors:register_door(name, def)
 			end
 		},
 		_on_wind_charge_hit = function(pos)
+			if def.only_redstone_can_open then return true end
 			if mcl_doors.is_open(pos) then close(pos) else open(pos) end
 			return true
 		end,
@@ -263,6 +264,7 @@ function mcl_doors:register_door(name, def)
 			end
 		},
 		_on_wind_charge_hit = function(pos)
+			if def.only_redstone_can_open then return true end
 			pos.y = pos.y - 1
 			if mcl_doors.is_open(pos) then close(pos) else open(pos) end
 			return true

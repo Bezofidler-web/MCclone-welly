@@ -48,28 +48,17 @@ core.register_craft({
 
 core.register_craftitem("mcl_potions:glass_bottle", {
 	_dispense_into_walkable = true,
-	_on_dispense = function(stack, pos, droppos, dropnode, dropdir)
-		local new_stack
+	_on_dispense = function(stack, _, droppos, dropnode)
 		local node_name = dropnode.name
-		local inv = core.get_meta(pos):get_inventory()
 		if core.get_item_group(node_name, "honey_level") == 5 then
-			core.swap_node(droppos, {name = node_name:gsub("_5", ""), param2 = dropnode.param2})
-			new_stack = ItemStack("mcl_honey:honey_bottle")
-			droppos = vector.add(droppos, dropdir)
+			mcl_redstone.swap_node(droppos, {name = node_name:gsub("_5$", ""), param2 = dropnode.param2})
+			return ItemStack("mcl_honey:honey_bottle")
 		elseif core.get_item_group(node_name, "water") ~= 0 then
 			local water_type = "water"
 			local defs = core.registered_nodes[node_name]
 			local is_source = defs and defs.liquidtype == "source"
 			if core.get_item_group(node_name, "river_water") ~= 0 then water_type = "river_water" end
-			if is_source then new_stack = ItemStack("mcl_potions:" .. water_type) end
-		end
-		if new_stack then
-			if inv:room_for_item("main", new_stack) then
-				inv:add_item("main", new_stack)
-			else
-				core.add_item(droppos, new_stack)
-			end
-			stack:take_item()
+			if is_source then return ItemStack("mcl_potions:" .. water_type) end
 		end
 		return stack
 	end,

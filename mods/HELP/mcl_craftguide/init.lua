@@ -204,6 +204,54 @@ local function extract_groups(str)
 	return string.split(string.sub(str, 7), ",")
 end
 
+-- Reserve one actual stack unit per ingredient. An earlier general group
+-- can move to another stack when a later slot needs a more specific item.
+function mcl_craftguide.match_recipe(inv, items)
+	local stacks = inv:get_list("main")
+	for _, stack in ipairs(inv:get_list("craft") or {}) do
+		stacks[#stacks + 1] = stack
+	end
+	local candidates, assigned, owners = {}, {}, {}
+	local function reserve(slot, seen)
+		for _, source in ipairs(candidates[slot]) do
+			if not seen[source] then
+				seen[source] = true
+				local used = owners[source]
+				if #used < stacks[source]:get_count() then
+					used[#used + 1] = slot
+					assigned[slot] = source
+					return true
+				end
+				for j, other_slot in ipairs(used) do
+					if reserve(other_slot, seen) then
+						used[j] = slot
+						assigned[slot] = source
+						return true
+					end
+				end
+			end
+		end
+	end
+	local complete = true
+	for slot = 1, table.max_index(items) do
+		local item = items[slot]
+		if item and item ~= "" then
+			local groups = item:sub(1, 6) == "group:" and extract_groups(item)
+			local name = not groups and ItemStack(item):get_name()
+			candidates[slot] = {}
+			for source, stack in ipairs(stacks) do
+				local def = not stack:is_empty() and stack:get_definition()
+				if def and (stack:get_name() == name or (groups and item_has_groups(def.groups, groups))) then
+					candidates[slot][#candidates[slot] + 1] = source
+					owners[source] = owners[source] or {}
+				end
+			end
+			if not reserve(slot, {}) then complete = false end
+		end
+	end
+	return assigned, complete, stacks
+end
+
 local function get_player_data(name, init)
 	if not player_data[name] and init ~= false then
 		player_data[name] = {
@@ -405,37 +453,7 @@ local function get_recipe_fs(data, iY, player)
 		return table.concat(fs)
 	end
 
-	local recipe_items_set = {}
-	local recipe_groups_set = {}
-	local required_items = {}
-
-	for _, item in pairs(recipe.items) do
-		if string.sub(item, 1, 6) == "group:" then
-			recipe_groups_set[string.sub(item, 7, #item)] = true
-		else
-			recipe_items_set[item] = true
-		end
-		required_items[item] = 0
-	end
-
-	local player_inv = player:get_inventory()
-	local main_list = player_inv:get_list("main")
-	local has_all_ingredients = true
-
-	for _, stack in pairs(main_list) do
-		local stack_name = stack:get_name()
-
-		if recipe_items_set[stack_name] then
-			required_items[stack_name] = required_items[stack_name] + stack:get_count()
-		else
-			for group, _ in pairs(recipe_groups_set) do
-				if core.get_item_group(stack_name, group) > 0 then
-					local key = "group:" .. group
-					required_items[key] = required_items[key] + stack:get_count()
-				end
-			end
-		end
-	end
+	local assigned, has_all_ingredients = mcl_craftguide.match_recipe(player:get_inventory(), recipe.items)
 
 	for i, item in pairs(recipe.items) do
 		local X = math.ceil((i - 1) % width + xoffset - width) - (0.2)
@@ -454,11 +472,8 @@ local function get_recipe_fs(data, iY, player)
 
 		local _, _, item_mod, item_name = string.find(item, "^([^:]*):(.*)$")
 		local button_name = "ingredient_button_" .. i .. "_" .. item_mod .. "$$$" .. item_name
-		if required_items[item] <= 0 then
+		if not assigned[i] then
 			fs[#fs + 1] = string.format("style[%s,%s:hovered,%s:focused+hovered;bgcolor=%s]", button_name, button_name, button_name, RED_COLOR)
-			has_all_ingredients = false
-		else
-			required_items[item] = required_items[item] - 1
 		end
 
 		local groups
@@ -567,24 +582,8 @@ local function get_recipe_fs(data, iY, player)
 				0.6,
 				"mcl_craftguide_fuel.png")
 		end
-		-- show the button crafting button if recipe items are in
-		-- inventory and the recipe fits the available crafting grid
-		--
-		-- TODO: unhardcode craft grid sizes
-		local has_table = mcl_crafting_table.has_crafting_table(player)
-		local can_craft = has_all_ingredients
-			and (
-				has_table
-				or (
-					not shapeless
-					and recipe.width <= 2
-					and math.ceil(table.max_index(recipe.items) / recipe.width) <= 2
-				)
-				or (
-					shapeless
-					and table.max_index(recipe.items) <= 4
-				)
-			)
+		local grid_size = mcl_crafting_table.has_crafting_table(player) and 3 or 2
+		local can_craft = has_all_ingredients and width <= grid_size and rows <= grid_size
 		if recipe.type == "normal" and can_craft then
 			fs[#fs + 1] = string.format("image_button[%f,%f;%f,%f;%s;%s_inv;%s]",
 				output_X + 2.7,
@@ -593,7 +592,7 @@ local function get_recipe_fs(data, iY, player)
 				1.1,
 				"mcl_crafting_guide_craft.png",
 				"craft","craft")
-			fs[#fs + 1] = "tooltip[craft;To crafting table]"
+			fs[#fs + 1] = "tooltip[craft_inv;" .. F(S("Fill crafting grid")) .. "]"
 		end
 	end
 
@@ -899,19 +898,18 @@ local function on_receive_fields(player, fields)
 		show_fs(player, name)
 	elseif fields.craft_inv and fields.craft_inv == "craft" then
 		local recipe = data.recipes and data.recipes[data.rnum]
-		if not recipe then
+		if not recipe then return end
+		local has_table = mcl_crafting_table.has_crafting_table(player)
+		local size = has_table and 3 or 2
+		if not mcl_inventory.to_craft_grid(player, recipe, size, size) then
+			core.chat_send_player(name, S("Cannot fill this recipe. Check your ingredients, crafting grid size and backpack space."))
 			return
-		elseif mcl_crafting_table.has_crafting_table(player) then
+		end
+		if has_table then
 			mcl_crafting_table.show_crafting_form(player)
 		else
-			local count = table.count(recipe.items, function(_,v) return not ItemStack(v):is_empty()  end)
-			if recipe.width <= 2 and count <= 4 then
-				mcl_inventory.show_inventory(player)
-			else
-				return
-			end
+			mcl_inventory.show_inventory(player)
 		end
-		mcl_inventory.to_craft_grid(player, recipe)
 	else
 		local item
 		for field, _ in pairs(fields) do

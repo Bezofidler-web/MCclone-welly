@@ -1,6 +1,7 @@
 local S = core.get_translator(core.get_current_modname())
 local water_s = core.registered_nodes["mcl_core:water_source"]
 local water_f = core.registered_nodes["mcl_core:water_flowing"]
+local still_animation = water_s.tiles[1].animation
 core.register_node("mclx_core:river_water_source", table.merge(water_s, {
 	description = S("River Water Source"),
 	liquidtype = "source",
@@ -14,14 +15,14 @@ core.register_node("mclx_core:river_water_source", table.merge(water_s, {
 	_doc_items_entry_name = S("River Water"),
 	_doc_items_hidden = core.get_mapgen_setting("mg_name") ~= "valleys",
 	_on_bottle_place = mcl_core.get_bottle_place_on_water("mcl_potions:river_water"),
-	post_effect_color = {a=192, r=0x2c, g=0x88, b=0x8c},
+	post_effect_color = water_s.post_effect_color,
 	tiles = {
-		{name="default_river_water_source_animated.png", animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0}}
+		{name="default_river_water_source_animated.png", animation=still_animation}
 	},
 	special_tiles = {
 		{
 			name="default_river_water_source_animated.png",
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=5.0},
+			animation=still_animation,
 			backface_culling = false,
 		}
 	},
@@ -37,18 +38,18 @@ core.register_node("mclx_core:river_water_flowing", table.merge(water_f, {
 	liquid_alternative_source = "mclx_core:river_water_source",
 	liquid_renewable = false,
 	tiles = {"default_river_water_flowing_animated.png^[verticalframe:64:0"},
-	post_effect_color = {a=192, r=0x2c, g=0x88, b=0x8c},
+	post_effect_color = water_f.post_effect_color,
 	_on_bottle_place = mcl_core.get_bottle_place_on_water("mcl_potions:river_water"),
 	special_tiles = {
 		{
 			name = "default_river_water_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=4.0}
+			animation=water_f.special_tiles[1].animation
 		},
 		{
 			name = "default_river_water_flowing_animated.png",
 			backface_culling=false,
-			animation={type="vertical_frames", aspect_w=16, aspect_h=16, length=4.0}
+			animation=water_f.special_tiles[2].animation
 		},
 	}
 }))

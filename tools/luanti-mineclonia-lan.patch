@@ -1,0 +1,109 @@
+diff --git a/src/client/game_formspec.cpp b/src/client/game_formspec.cpp
+index 1fb8695..f45cf85 100644
+--- a/src/client/game_formspec.cpp
++++ b/src/client/game_formspec.cpp
+@@ -5,6 +5,7 @@
+ #include "game_formspec.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <cmath>
+ #include <sstream>
+ #include "gettext.h"
+@@ -226,9 +227,12 @@ public:
+ 			}
+ 			button(left, top + 3 * row, half, "btn_java_options", gettext("Options..."));
+ 			button(right, top + 3 * row, half, "btn_java_world", gettext("World Options..."), true);
++			const bool can_share = m_local_game && std::getenv("MCL_LAN_SESSION_ID") && !m_voice;
+ 			if (m_voice)
+ 				button(left, top + 4 * row, full, "btn_mcl_voice", gettext("Voice Chat"));
+-			button(left, top + (m_voice ? 5 : 4) * row, full, "btn_exit_menu",
++			else if (can_share)
++				button(left, top + 4 * row, full, "btn_java_lan", gettext("Open to LAN"), true);
++			button(left, top + (m_voice || can_share ? 5 : 4) * row, full, "btn_exit_menu",
+ 				m_local_game ? gettext("Save and Quit to Title") : gettext("Disconnect"), true);
+ 		}
+ 
+@@ -287,6 +291,8 @@ struct JavaPauseFormspecHandler final : public HardcodedPauseFormspecHandler
+ 			m_client->sendChatMessage(L"/mcl_java_pause server");
+ 		else if (fields.count("btn_java_world"))
+ 			m_client->sendChatMessage(L"/mcl_java_pause world");
++		else if (fields.count("btn_java_lan"))
++			m_client->sendChatMessage(L"/openlan");
+ 		else if (fields.count("btn_java_bugs"))
+ 			g_gamecallback->showOpenURLDialog("https://codeberg.org/mineclonia/mineclonia/issues");
+ 		else if (fields.count("btn_java_feedback"))
+@@ -682,7 +688,7 @@ void GameFormSpec::showPauseMenu()
+ {
+ 	if (g_settings->getBool("mcl_java_ui")) {
+ 		auto *source = new JavaPauseFormSource(m_client->getTextureSource(),
+-				m_client->getAddressName().empty(), m_client->voice().available);
++				m_client->m_simple_singleplayer_mode, m_client->voice().available);
+ 		auto *handler = new JavaPauseFormspecHandler(m_client, source, m_open_voice_menu);
+ 		GUIFormSpecMenu::create(m_formspec, m_client, m_rendering_engine->get_gui_env(),
+ 				source, handler, "", m_client->getSoundManager());
+diff --git a/src/network/serverpackethandler.cpp b/src/network/serverpackethandler.cpp
+index 2525bc4..f2e8289 100644
+--- a/src/network/serverpackethandler.cpp
++++ b/src/network/serverpackethandler.cpp
+@@ -32,6 +32,7 @@
+ #include "clientdynamicinfo.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ 
+ static constexpr std::size_t MAX_CLIENT_MOD_CHANNELS = 128;
+ 
+@@ -161,10 +162,21 @@ void Server::handleCommand_Init(NetworkPacket* pkt)
+ 	}
+ 	// Or the "singleplayer" name to be used on regular servers
+ 	if (!isSingleplayer() && strcasecmp(playername, "singleplayer") == 0) {
+-		actionstream << "Server: Player with the name \"singleplayer\" tried "
+-			"to connect from " << addr_s << std::endl;
+-		DenyAccess(peer_id, SERVER_ACCESSDENIED_WRONG_NAME);
+-		return;
++		// The local owner keeps the original solo player record when opening a
++		// saved world. Never admit a remote peer under this reserved identity.
++		std::string token, world, owner;
++		const char *launch = std::getenv("MCL_LAN_SESSION_ID");
++		const bool local_owner = addr.isLocalhost() && playerName == "singleplayer" &&
++				launch && *launch && g_settings->getNoEx("mcl_lan_session", token) && token == launch &&
++				g_settings->getNoEx("mcl_lan_world_path", world) && world == getWorldPath() &&
++				g_settings->getNoEx("mcl_lan_solo_owner", owner) && owner == "true" &&
++				g_settings->get("name") == "singleplayer";
++		if (!local_owner) {
++			actionstream << "Server: Player with the name \"singleplayer\" tried "
++				"to connect from " << addr_s << std::endl;
++			DenyAccess(peer_id, SERVER_ACCESSDENIED_WRONG_NAME);
++			return;
++		}
+ 	}
+ 
+ 	{
+diff --git a/src/script/lua_api/l_mainmenu.cpp b/src/script/lua_api/l_mainmenu.cpp
+index 33f3943..0bc19ff 100644
+--- a/src/script/lua_api/l_mainmenu.cpp
++++ b/src/script/lua_api/l_mainmenu.cpp
+@@ -1127,6 +1127,8 @@ int ModApiMainMenu::l_copy_to_clipboard(lua_State *L)
+ /******************************************************************************/
+ void ModApiMainMenu::Initialize(lua_State *L, int top)
+ {
++	lua_pushboolean(L, true);
++	lua_setfield(L, top, "mcl_lan_solo_identity");
+ 	API_FCT(update_formspec);
+ 	API_FCT(set_formspec_prepend);
+ 	API_FCT(set_clouds);
+diff --git a/src/server.cpp b/src/server.cpp
+index 2c7bfdd..8a4b0e8 100644
+--- a/src/server.cpp
++++ b/src/server.cpp
+@@ -297,7 +297,8 @@ Server::Server(
+ 	m_craftdef(createCraftDefManager()),
+ 	m_thread(new ServerThread(this)),
+ 	m_clients(m_con),
+-	m_voice_enabled(!simple_singleplayer_mode && gamespec.id == "mineclonia" &&
++	m_voice_enabled(!simple_singleplayer_mode && (gamespec.id == "mineclonia" ||
++			gamespec.aliases.count("mineclonia")) &&
+ 			g_settings->getBool("mcl_voice_chat")),
+ 	m_admin_chat(iface),
+ 	m_shutdown_errmsg(shutdown_errmsg),

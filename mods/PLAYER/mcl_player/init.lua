@@ -181,12 +181,15 @@ mcl_damage.register_modifier(function(obj, damage, reason)
 	if obj:is_player () and mcl_serverplayer.is_csm_capable (obj) then
 		return
 	end
+	if reason.stock_fall_distance then return end
 	if reason.type == "fall" then
 		local pos = obj:get_pos()
 		local node = core.get_node(pos)
 		local velocity = obj:get_velocity() or obj:get_player_velocity() or {x=0,y=-10,z=0}
 		local v_axis_max = math.max(math.abs(velocity.x), math.abs(velocity.y), math.abs(velocity.z))
-		local step = {x = velocity.x / v_axis_max, y = velocity.y / v_axis_max, z = velocity.z / v_axis_max}
+		local step = v_axis_max > 0 and
+			{x = velocity.x / v_axis_max, y = velocity.y / v_axis_max, z = velocity.z / v_axis_max}
+			or vector.new(0, -1, 0)
 		for _ = 1, math.ceil(v_axis_max/5)+1 do -- trace at least 1/5 of the way per second
 			if not node or node.name == "ignore" then
 				core.get_voxel_manip():read_from_map(pos, pos)
@@ -211,9 +214,11 @@ mcl_damage.register_modifier(function(obj, damage, reason)
 			pos = vector.add(pos, step)
 			node = core.get_node(pos)
 		end
-		return damage - mcl_potions.get_effect_level(obj, "leaping") --damage is reduced by 1 per level of leaping effect
+		return math.max(0, damage - mcl_potions.get_effect_level(obj, "leaping"))
 	end
 end, -200)
+
+dofile(core.get_modpath(core.get_current_modname()) .. "/fall_damage.lua")
 
 function mcl_player.player_knockback (player, hitter, dir, tool_capabilities, damage)
 	local knockback = 1
@@ -352,4 +357,5 @@ end
 local modpath = core.get_modpath(core.get_current_modname())
 dofile(modpath.."/animations.lua")
 dofile(modpath.."/settings.lua")
+dofile(modpath.."/java_pause.lua")
 dofile(modpath.."/compat.lua")

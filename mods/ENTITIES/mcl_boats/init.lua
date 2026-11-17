@@ -659,6 +659,26 @@ function mcl_boats.register_boat(name,item_def,object_properties,entity_override
 		texture = "mcl_boats_texture_" .. name .. "_boat.png"
 	end
 
+	local has_chest = name:sub(-6) == "_chest"
+	local boat_entity = has_chest and "mcl_boats:chest_boat" or "mcl_boats:boat"
+	local boat_variant = object_properties and object_properties.variant or variant.BOAT
+	local properties = table.merge(
+		boat_variant == variant.RAFT and raft_specific_properties or {},
+		{textures = {texture, has_chest and "mcl_chests_normal.png" or "blank.png"}},
+		object_properties or {})
+
+	local function spawn_boat(pos, yaw)
+		local obj = core.add_entity(pos, boat_entity)
+		local ent = obj and obj:get_luaentity()
+		if not ent then return false end
+		ent._itemstring = itemstring
+		ent._variant = boat_variant
+		obj:set_properties(properties)
+		obj:set_yaw(yaw)
+		for k, v in pairs(entity_overrides or {}) do ent[k] = v end
+		return true
+	end
+
 	core.register_craftitem(":"..itemstring, table.merge({
 		description = S(name.." Boat"),
 		_tt_help = tt_help,
@@ -693,44 +713,22 @@ function mcl_boats.register_boat(name,item_def,object_properties,entity_override
 			else
 				pos = vector.add(pos, vector.multiply(dir, boat_y_offset_ground))
 			end
-			local boat_ent = "mcl_boats:boat"
-			local chest_tex = "blank.png"
-			if itemstring:find("chest") then
-				boat_ent = "mcl_boats:chest_boat"
-				chest_tex = "mcl_chests_normal.png"
-			end
-			local boat = core.add_entity(pos, boat_ent)
-			if boat and boat:get_pos() then
-				local ent = boat:get_luaentity()
-				ent._itemstring = itemstring
-				local custom_properties = {textures = {texture, chest_tex}}
-				if object_properties and object_properties.variant == variant.RAFT then
-					custom_properties = table.merge(raft_specific_properties, custom_properties)
-					ent._variant = variant.RAFT
-				else
-					ent._variant = variant.BOAT
-				end
-				boat:set_properties(table.merge( custom_properties, object_properties or {}))
-				boat:set_yaw(placer:get_look_horizontal())
-				for k,v in pairs(entity_overrides or {}) do
-					ent[k] = v
-				end
-			end
-			if not core.is_creative_enabled(placer:get_player_name()) then
+			if spawn_boat(pos, placer:get_look_horizontal()) and not core.is_creative_enabled(placer:get_player_name()) then
 				itemstack:take_item()
 			end
 			return itemstack
 		end,
-		---@diagnostic disable-next-line: unused-local
-		_on_dispense = function(stack, pos, droppos, dropnode, dropdir)
+		_on_dispense = function(stack, _, droppos, dropnode, dropdir)
 			local below = {x=droppos.x, y=droppos.y-1, z=droppos.z}
 			local belownode = core.get_node(below)
 			-- Place boat as entity on or in water
 			if core.get_item_group(dropnode.name, "water") ~= 0 or (dropnode.name == "air" and core.get_item_group(belownode.name, "water") ~= 0) then
-				core.add_entity(droppos, "mcl_boats:boat")
-			else
-				core.add_item(droppos, stack)
+				local yaw = dropdir.y == 0 and core.dir_to_yaw(dropdir) or 0
+				if spawn_boat(droppos, yaw) then stack:take_item() end
+			elseif core.add_item(droppos, stack) then
+				stack:take_item()
 			end
+			return stack
 		end,
 	},item_def or {}))
 

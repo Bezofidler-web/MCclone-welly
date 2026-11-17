@@ -129,6 +129,7 @@ function mcl_damage.from_mt(mt_reason)
 			mcl_reason.type = mt_reason._mcl_type
 		elseif mt_reason.type == "fall" then
 			mcl_reason.type = "fall"
+			mcl_reason.native_fall = true
 		elseif mt_reason.type == "drown" then
 			mcl_reason.type = "drown"
 		elseif mt_reason.type == "punch" then

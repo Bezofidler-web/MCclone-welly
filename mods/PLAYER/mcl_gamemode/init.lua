@@ -46,6 +46,18 @@ function mcl_gamemode.set_gamemode(p, gm)
 	return true
 end
 
+-- The new title's explicit world mode takes precedence over a saved local
+-- /gamemode override. Ordinary launches and multiplayer keep their behaviour.
+local launch_world = core.is_singleplayer() and core.settings:get("mcl_singleplayer_reset_gamemode")
+if launch_world then
+	core.settings:remove("mcl_singleplayer_reset_gamemode")
+	if launch_world:gsub("\\", "/") == core.get_worldpath():gsub("\\", "/") then
+		core.register_on_joinplayer(function(player)
+			player:get_meta():set_string("gamemode", "")
+		end)
+	end
+end
+
 core.register_chatcommand("gamemode",{
 	params = S("[<gamemode>] [<player>]"),
 	description = S("Change gamemode (survival/creative/0/1/s/c) for yourself or player"),

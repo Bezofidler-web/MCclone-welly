@@ -240,7 +240,7 @@ local function initialize_engine_aliases ()
 		BirchForest = related_list_from_base ({"BirchForest", "BirchForestM",},
 						      overworld_subtypes),
 		ColdOcean = approximate_cold_ocean (),
-		DappledForest = {},
+		DappledForest = related_list_from_base ("DappledForest", overworld_subtypes),
 		DarkForest = related_list_from_base ("RoofedForest", overworld_subtypes),
 		PaleGarden = related_list_from_base ("PaleGarden", overworld_subtypes),
 		DeepColdOcean = approximate_cold_ocean (),
@@ -671,11 +671,15 @@ local limbo_formspec = [[
 formspec_version[6]
 size[16,9]
 position[0.5,0.5]
+no_prepend[]
 allow_close[false]
-hypertext[0,3;16,9;_;<center><big>%s</big></center>]
-image[3.84,4.8;8.34,0.0834;(blank.png^[resize:100x1^[fill:100x1:#000000)%s%s]
-bgcolor[;true;]
-background[-10,-10;0,0;mcl_biome_dispatch_transition_bkg.png;true]
+bgcolor[;true;#19171D]
+background[-10,-10;0,0;mcl_biome_dispatch_transition_bkg.png^[multiply:#928FA6;true]
+style_type[label;halign=center;valign=center;textcolor=#FFFFFF]
+label[0,3.56;16,0.52;%s]
+label[0,4.24;16,0.52;%d%%]
+box[5.05,5.09;5.9,0.11;#28232D]
+%s
 ]]
 
 local limbo_forceloaded
@@ -717,35 +721,19 @@ local function limbo_callback (progress, player, limbo_in)
 		limbo.callback (player, limbo.data)
 		limbo_cancel (player, limbo, true)
 	elseif player:is_player () then
-		local text = limbo.text
-		local progress_load
-			= mathmin (100, floor (n_emerged / total_emerge * 100))
-		local progress_regen
-			= mathmin (100, floor (n_regen / total_regen * 100))
-
-		if progress_load ~= limbo.last_progress_load
-			or progress_regen ~= limbo.last_progress_regen then
-			local pload = progress_load > 0
-				and string.format ("^[fill:%dx1:#000000", progress_load)
+		local completed = n_emerged + n_regen
+		local total = total_emerge + total_regen
+		local percent = mathmin (99, floor (100 * completed / total))
+		if percent ~= limbo.last_percent then
+			local fill = percent > 0
+				and string.format ("box[5.05,5.09;%.3f,0.11;#90C762]", 5.9 * percent / 100)
 				or ""
-			local pregen = progress_regen > 0
-				and string.format ("^[fill:%dx1:#00FF00", progress_regen)
-				or ""
-			local pmax, pmin
-			if progress_regen > progress_load then
-				pmax = pregen
-				pmin = pload
-			else
-				pmax = pload
-				pmin = pregen
-			end
-			local formspec = string.format (limbo_formspec, text,
-							pmax, pmin)
+			local formspec = string.format (limbo_formspec, limbo.text, percent, fill)
+				.. ("tooltip[mcl_java_terrain_progress;%d]"):format (percent)
 			core.show_formspec (player:get_player_name (),
 					    "mcl_biome_dispatch:limbo_formspec",
 					    formspec)
-			limbo.last_progress_load = progress_load
-			limbo.last_progress_regen = progress_regen
+			limbo.last_percent = percent
 		end
 	end
 end
@@ -794,8 +782,7 @@ function mcl_biome_dispatch.emerged_teleport_prepare (player, v1, v2, msg, callb
 		data = data,
 	}
 	objects_in_limbo[player] = limbo_data
-	local escaped = core.formspec_escape (limbo_data.msg)
-	limbo_data.text = core.hypertext_escape (escaped)
+	limbo_data.text = core.formspec_escape (limbo_data.msg)
 	limbo_restore (player, limbo_data, nil)
 	toggle_forceload ()
 	return LIMBO_POSITION

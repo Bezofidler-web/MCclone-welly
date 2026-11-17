@@ -146,16 +146,18 @@ local function is_room_for_item(stack, src_inventory, src_list, dst_inventory, d
 	return dst_inventory:room_for_item(dst_list, new_stack)
 end
 
--- Moves a single item from one inventory to another.
+-- Moves items from one inventory to another.
 --- source_inventory: Inventory to take the item from
 --- source_list: List name of the source inventory from which to take the item
 --- source_stack_id: The inventory position ID of the source inventory to take the item from (-1 for first occupied slot)
 --- destination_inventory: Put item into this inventory
 --- destination_list: List name of the destination inventory to which to put the item into
+-- max_count defaults to one. select_destination_slot can choose where each item goes.
 
 -- Returns true on success and false on failure
 -- Possible failures: No item in source slot, destination inventory full
-function mcl_util.move_item(source_inventory, source_list, source_stack_id, destination_inventory, destination_list)
+function mcl_util.move_item(source_inventory, source_list, source_stack_id, destination_inventory, destination_list,
+	max_count, select_destination_slot)
 	if source_stack_id == -1 then
 		source_stack_id =  mcl_util.get_eligible_transfer_item_slot(source_inventory, source_list)
 		if source_stack_id == nil then
@@ -166,6 +168,29 @@ function mcl_util.move_item(source_inventory, source_list, source_stack_id, dest
 	if not source_inventory:is_empty(source_list) then
 		local stack = source_inventory:get_stack(source_list, source_stack_id)
 		if not stack:is_empty() then
+			if max_count or select_destination_slot then
+				local incoming = stack:peek_item(max_count or 1)
+				local count = incoming:get_count()
+				if select_destination_slot then
+					-- Re-select for each item so machines which balance slots can see the new counts.
+					while not incoming:is_empty() do
+						local item = incoming:peek_item(1)
+						local slot = select_destination_slot(item)
+						if not slot then break end
+						local target = destination_inventory:get_stack(destination_list, slot)
+						if not target:add_item(item):is_empty() then break end
+						destination_inventory:set_stack(destination_list, slot, target)
+						incoming:take_item(1)
+					end
+				else
+					incoming = destination_inventory:add_item(destination_list, incoming)
+				end
+				local moved = count - incoming:get_count()
+				if moved == 0 then return false end
+				stack:take_item(moved)
+				source_inventory:set_stack(source_list, source_stack_id, stack)
+				return true
+			end
 			local new_stack = ItemStack(stack)
 			new_stack:set_count(1)
 			if not destination_inventory:room_for_item(destination_list, new_stack) then
@@ -187,8 +212,9 @@ end
 --- source_list (optional): List name of the source inventory from which to take the item. Default is normally "main"; "dst" for furnace
 --- source_stack_id (optional): The inventory position ID of the source inventory to take the item from (-1 for slot of the first valid item; -1 is default)
 --- destination_list (optional): List name of the destination inventory. Default is normally "main"; "src" for furnace
+--- max_count (optional): Maximum number of items to move. Defaults to one.
 -- Returns true on success and false on failure.
-function mcl_util.move_item_container(source_pos, destination_pos, source_list, source_stack_id, destination_list)
+function mcl_util.move_item_container(source_pos, destination_pos, source_list, source_stack_id, destination_list, max_count)
 	local dpos = table.copy(destination_pos)
 	local spos = table.copy(source_pos)
 	local snode = core.get_node(spos)
@@ -262,6 +288,14 @@ function mcl_util.move_item_container(source_pos, destination_pos, source_list, 
 		end
 	end
 
+	local ddef = core.registered_nodes[dnode.name]
+	local select_destination_slot
+	if destination_list == "main" and ddef and ddef._mcl_container_insert_slot then
+		select_destination_slot = function(item)
+			return ddef._mcl_container_insert_slot(dpos, item)
+		end
+	end
+
 	-- Automatically select stack slot ID if set to automatic
 	if not source_stack_id then
 		source_stack_id = -1
@@ -271,6 +305,8 @@ function mcl_util.move_item_container(source_pos, destination_pos, source_list, 
 		-- Prevent shulker box inception
 		if dctype == 3 then
 			cond = is_not_shulker_box
+		elseif select_destination_slot then
+			cond = function(stack) return select_destination_slot(stack:peek_item(1)) ~= nil end
 		elseif core.get_item_group(dnode.name, "hopper") > 0 then
 			cond = is_room_for_item
 		end
@@ -308,7 +344,8 @@ function mcl_util.move_item_container(source_pos, destination_pos, source_list, 
 	if dctype ~= 0 then
 		if destination_list then
 			-- Move item
-			local ok = mcl_util.move_item(sinv, source_list, source_stack_id, dinv, destination_list)
+			local ok = mcl_util.move_item(sinv, source_list, source_stack_id, dinv, destination_list,
+				max_count, select_destination_slot)
 
 			-- Try transfer to neighbor node if transfer failed and double container
 			if dnode and not ok and dctype == 5 then
@@ -316,10 +353,17 @@ function mcl_util.move_item_container(source_pos, destination_pos, source_list, 
 				dmeta = core.get_meta(dpos)
 				dinv = dmeta:get_inventory()
 
-				ok = mcl_util.move_item(sinv, source_list, source_stack_id, dinv, destination_list)
+				ok = mcl_util.move_item(sinv, source_list, source_stack_id, dinv, destination_list, max_count)
 			end
 
 			if ok then
+				local sdef = core.registered_nodes[snode.name]
+				if sdef and sdef._mcl_container_inventory_changed then
+					sdef._mcl_container_inventory_changed(spos, source_list)
+				end
+				if ddef and ddef._mcl_container_inventory_changed then
+					ddef._mcl_container_inventory_changed(dpos, destination_list)
+				end
 				mcl_redstone.update_comparators(vector.copy(left_spos))
 				if right_spos then
 					mcl_redstone.update_comparators(vector.copy(right_spos))

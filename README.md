@@ -13,7 +13,10 @@ performance and features. For information about migrating from VoxeLibre
 
 Version: 0.124.1
 
-[Friends-only server and local Java textures](FRIENDS.md)
+**mcWelly multiplayer on Windows.** Open **Play Mineclonia.cmd**. Choose
+**Multiplayer → Host World → Open to LAN** to share a save. Friends on the same
+network select the world in **Multiplayer → Join World**.
+[Multiplayer, private invitations and local Java textures](FRIENDS.md).
 
 ### Differences from VoxeLibre (formerly MineClone2)
 * Overworld depth increased from 64 to 128 nodes

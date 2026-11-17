@@ -13,16 +13,22 @@ function core.do_item_eat(hunger_points, replace_with_item, itemstack, user, poi
 		return rc
 	end
 
+	-- Luanti lets callbacks replace or cancel eating before it changes the
+	-- player's health or inventory. Keep Mineclonia's extra snapshot argument.
+	local old_itemstack = ItemStack(itemstack)
+	for _, callback in ipairs(core.registered_on_item_eats) do
+		local result = callback(hunger_points, replace_with_item, itemstack, user, pointed_thing, old_itemstack)
+		if result then return result end
+	end
+
 	local itemname = itemstack:get_name()
 	local playername = user:get_player_name()
 	local creative = core.is_creative_enabled(playername)
 	local def = core.registered_items[itemname]
 
 	if def and def._mcl_eat_effect then
-		def._mcl_eat_effect(itemstack, user)
+		def._mcl_eat_effect(itemstack, user, pointed_thing)
 	end
-
-	local old_itemstack = itemstack
 
 	if mcl_hunger.active and hunger_points then
 		mcl_hunger.saturate(playername, core.registered_items[itemname]._mcl_saturation or 0, false)
@@ -44,13 +50,6 @@ function core.do_item_eat(hunger_points, replace_with_item, itemstack, user, poi
 			inv:add_item("main", nstack)
 		else
 			core.add_item(user:get_pos(), nstack)
-		end
-	end
-
-	for _, callback in pairs(core.registered_on_item_eats) do
-		local result = callback(hunger_points, replace_with_item, itemstack, user, pointed_thing, old_itemstack)
-		if result then
-			return result
 		end
 	end
 

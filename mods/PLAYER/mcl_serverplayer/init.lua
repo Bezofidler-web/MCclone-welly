@@ -618,6 +618,7 @@ local function receive_modchannel_message_1 (player, message)
 			local blurb = "Established CSM connection with client "
 				.. player:get_player_name ()
 			core.log ("action", blurb)
+			mcl_sprint.stop_sprinting (player)
 			state.handshake_status = "complete"
 
 			if state.proto >= 1 then
@@ -776,8 +777,8 @@ local function receive_modchannel_message_1 (player, message)
 				-- Guarantee that the stack's contents
 				-- haven't changed in the interim.
 				if inv:get_stack ("main", index):equals (stack) then
-					core.do_item_eat(def.groups.eatable, def._mcl_eat_replace_with, stack, player)
-					player:set_wielded_item(stack)
+					local result = core.do_item_eat(def.groups.eatable, def._mcl_eat_replace_with, stack, player)
+					inv:set_stack("main", index, result or stack)
 				end
 			else
 				error ("Attempting to consume non-edible item")

@@ -1393,12 +1393,18 @@ local donkey_spawner = table.merge (mobs_mc.animal_spawner, {
 	pack_min = 1,
 	pack_max = 3,
 	biomes = {
-		"#is_savannah",
+		"Plains",
+		"SunflowerPlains",
 	},
 })
 
-local donkey_spawner_meadow = table.merge (donkey_spawner, {
+local donkey_spawner_savannah = table.merge (donkey_spawner, {
 	pack_max = 1,
+	biomes = { "#is_savannah" },
+})
+
+local donkey_spawner_meadow = table.merge (donkey_spawner, {
+	pack_max = 2,
 	biomes = {
 		"Meadow",
 	},
@@ -1407,4 +1413,5 @@ local donkey_spawner_meadow = table.merge (donkey_spawner, {
 mcl_mobs.register_spawner (horse_spawner)
 mcl_mobs.register_spawner (horse_spawner_savannah)
 mcl_mobs.register_spawner (donkey_spawner)
+mcl_mobs.register_spawner (donkey_spawner_savannah)
 mcl_mobs.register_spawner (donkey_spawner_meadow)

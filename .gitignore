@@ -17,3 +17,7 @@ tools/minetestmapper/colors.txt
 
 # Local assets, server settings and world data for the friends server
 /local/
+
+# Java audio imported from the player's Minecraft installation
+/mods/CORE/mcl_sounds/sounds/mcl_sounds_java_door_*.ogg
+/mods/CORE/mcl_sounds/sounds/java_door_events.json

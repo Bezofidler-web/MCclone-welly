@@ -131,6 +131,9 @@ local function get_rgb (cid, param2)
 	return nil
 end
 
+-- Packed RGB palette entry for a node as drawn on Mineclonia maps.
+mcl_maps.get_node_color = get_rgb
+
 local function scan_heightmap (current_height, x, z, y1, y2)
 	if y2 >= current_height then
 		for y = y2, y1, -1 do
