@@ -33,10 +33,11 @@ local function is_walkable (name)
 	return def and def.walkable
 end
 
-local function generate_bell_schematic (schem_name)
-	local schematic = core.read_schematic (schem_name, {})
+local function generate_bell_schematic (specifier)
+	local schematic = type (specifier) == "table" and specifier
+		or core.read_schematic (specifier, {})
 	if not schematic then
-		error ("Could not load schematic: " .. schem_name)
+		error ("Could not load schematic: " .. specifier)
 	end
 
 	local size = schematic.size
@@ -45,6 +46,7 @@ local function generate_bell_schematic (schem_name)
 	local zstride = size.x * size.y
 	local ndata = schematic.data
 	local endpoints = {}
+	local pois = {}
 	local bell_x, bell_y, bell_z
 
 	for x, y, z in ipos3 (0, 0, 0, size.x - 1, size.y - 1, size.z - 1) do
@@ -57,6 +59,8 @@ local function generate_bell_schematic (schem_name)
 		elseif core.get_item_group (ndata[idx].name, "bell") >= 1 then
 			bell_x, bell_y, bell_z = x, y, z
 			schematic.bell = { x, y, size.z - z - 1, }
+		elseif is_job_site (ndata[idx].name) then
+			table.insert (pois, {x, y, size.z - z - 1, ndata[idx].name})
 		end
 	end
 
@@ -71,7 +75,7 @@ local function generate_bell_schematic (schem_name)
 
 	schematic.exits = {}
 	schematic.beds = {}
-	schematic.pois = {}
+	schematic.pois = pois
 	if not schematic.bell then
 		error ("Bell schematic failed to define bell")
 	end
@@ -641,7 +645,44 @@ local names_standalone = {
 	"new_villages/lamp_6",
 }
 
+local settlement_building_names = {
+	"gdmc_market_stall_fish",
+	"gdmc_market_stall_produce",
+	"gdmc_bakery",
+	"gdmc_smithy",
+}
+
 local schematic_meta = {}
+
+local function register_settlement_schematics ()
+	local prefix = "mcl_villages:settlements/"
+	local squares = dofile (mcl_villages.modpath .. "/settlement_squares.lua")
+	for _, name in ipairs ({"village_green", "town_square", "city_square"}) do
+		local schematic = generate_bell_schematic (squares[name])
+		local id = prefix .. name
+		mcl_levelgen.register_portable_schematic (id, schematic, true)
+		schematic_meta[id] = {
+			exits = schematic.exits,
+			bell = schematic.bell,
+			bell_spawn = schematic.bell_spawn,
+			beds = schematic.beds,
+			pois = schematic.pois,
+		}
+	end
+	for _, name in ipairs (settlement_building_names) do
+		local file = mcl_villages.modpath .. "/schematics/settlements/" .. name .. ".mts"
+		local schematic = generate_buildinglike_schematic (file)
+		local id = prefix .. name
+		mcl_levelgen.register_portable_schematic (id, schematic, true)
+		schematic_meta[id] = {
+			connecting = schematic.connecting,
+			exits = schematic.exits,
+			beds = schematic.beds,
+			pois = schematic.pois,
+		}
+	end
+	core.ipc_set ("mcl_villages:settlement_building_names", settlement_building_names)
+end
 
 function mcl_villages.load_default_schematics ()
 	for _, name in ipairs (names_bell) do
@@ -700,6 +741,9 @@ function mcl_villages.load_default_schematics ()
 end
 
 mcl_villages.load_default_schematics ()
+if mcl_levelgen.levelgen_enabled or mcl_levelgen.enable_ersatz then
+	register_settlement_schematics ()
+end
 
 core.register_on_mods_loaded (function ()
 	core.ipc_set ("mcl_villages:schematic_meta", schematic_meta)
@@ -1479,6 +1523,79 @@ for name, loot in pairs (type_loot_tables) do
 	verify_loot_table (name, loot)
 end
 
+local settlement_loot = {
+	town_square = {
+		{
+			stacks_min = 1, stacks_max = 1,
+			items = {{itemstring = "mcl_maps:city_explorer_map"}},
+		},
+		{
+			stacks_min = 2, stacks_max = 3,
+			items = {
+				{itemstring = "mcl_farming:bread", weight = 4, amount_min = 2, amount_max = 4},
+				{itemstring = "mcl_farming:wheat_item", weight = 4, amount_min = 2, amount_max = 5},
+				{itemstring = "mcl_core:paper", weight = 3, amount_min = 1, amount_max = 3},
+				{itemstring = "mcl_core:emerald", weight = 1},
+			},
+		},
+	},
+	city_square = {
+		{
+			stacks_min = 1, stacks_max = 1,
+			items = {{itemstring = "mcl_maps:trial_explorer_map"}},
+		},
+		{
+			stacks_min = 2, stacks_max = 3,
+			items = {
+				{itemstring = "mcl_core:paper", weight = 5, amount_min = 2, amount_max = 6},
+				{itemstring = "mcl_books:book", weight = 4, amount_min = 1, amount_max = 2},
+				{itemstring = "mcl_maps:map_empty", weight = 3},
+				{itemstring = "mcl_compass:compass", weight = 2},
+			},
+		},
+	},
+	gdmc_bakery = {
+		{
+			stacks_min = 1, stacks_max = 1,
+			items = {{itemstring = "mcl_farming:bread", amount_min = 3, amount_max = 5}},
+		},
+		{
+			stacks_min = 2, stacks_max = 3,
+			items = {
+				{itemstring = "mcl_farming:wheat_item", weight = 5, amount_min = 2, amount_max = 6},
+				{itemstring = "mcl_farming:carrot_item", weight = 4, amount_min = 1, amount_max = 4},
+				{itemstring = "mcl_farming:cookie", weight = 2, amount_min = 2, amount_max = 4},
+			},
+		},
+	},
+	gdmc_smithy = {
+		{
+			stacks_min = 1, stacks_max = 1,
+			items = {{itemstring = "mcl_core:iron_ingot", amount_min = 2, amount_max = 5}},
+		},
+		{
+			stacks_min = 2, stacks_max = 3,
+			items = {
+				{itemstring = "mcl_core:coal_lump", weight = 5, amount_min = 2, amount_max = 6},
+				{itemstring = "mcl_copper:copper_ingot", weight = 4, amount_min = 1, amount_max = 4},
+				{itemstring = "mcl_tools:pick_iron", weight = 1, wear_min = 5000, wear_max = 20000},
+				{itemstring = "mcl_tools:axe_iron", weight = 1, wear_min = 5000, wear_max = 20000},
+			},
+		},
+	},
+}
+
+local settlement_loot_ids = {}
+for name, pools in pairs (settlement_loot) do
+	local id = "mcl_villages:settlements/" .. name
+	for _, pool in ipairs (pools) do
+		verify_loot_table (id, pool)
+	end
+	mcl_levelgen.register_loot_table (id, pools)
+	settlement_loot_ids[id] = true
+end
+core.ipc_set ("mcl_villages:settlement_loot", settlement_loot_ids)
+
 local level_to_minetest_position = mcl_levelgen.level_to_minetest_position
 local v = vector.zero ()
 
@@ -1555,6 +1672,10 @@ local function handle_villager (_, data)
 		return
 	end
 	local villager = object:get_luaentity ()
+	villager._city_resident = data.is_city or nil
+	if data.is_city and poi and villager._profession == "nitwit" then
+		villager:reset_profession ()
+	end
 	villager:claim_home (v0)
 	villager:claim_bell (v1)
 

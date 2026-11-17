@@ -38,6 +38,8 @@ local desert_village_template = table.copy (village_template)
 local snowy_village_template = table.copy (village_template)
 local savannah_village_template = table.copy (village_template)
 local taiga_village_template = table.copy (village_template)
+local settlement_squares = {}
+local settlement_landmarks = {}
 
 -- Each component in a template should identify a portable schematic,
 -- a "connecting" position and orientation, and possibly a list of
@@ -95,6 +97,13 @@ local function initialize_village_templates ()
 	for _, variant in ipairs (variants) do
 		local name = variant[1]
 		initialize_village_template (variant[2], village_templates[name])
+	end
+	local prefix = "mcl_villages:settlements/"
+	for _, name in ipairs ({"village_green", "town_square", "city_square"}) do
+		settlement_squares[name] = load_schematic (prefix .. name)
+	end
+	for _, name in ipairs (core.ipc_get ("mcl_villages:settlement_building_names")) do
+		table.insert (settlement_landmarks, load_schematic (prefix .. name))
 	end
 end
 
@@ -222,6 +231,8 @@ local current_structure_piece = mcl_levelgen.current_structure_piece
 
 local cid_chest_small = core.get_content_id ("mcl_chests:chest_small")
 
+local settlement_loot = core.ipc_get ("mcl_villages:settlement_loot")
+local set_loot_table = mcl_levelgen.set_loot_table
 local notify_generated = mcl_levelgen.notify_generated
 local notify_generated_unchecked = mcl_levelgen.notify_generated_unchecked
 
@@ -234,6 +245,10 @@ local function instantiate_crops_and_chests (x, y, z, rng, cid_existing,
 		return content[1], content[2]
 	elseif cid == cid_chest_small then
 		local piece = current_structure_piece ()
+		if settlement_loot[piece.schematic] then
+			set_loot_table (x, y, z, rng, piece.schematic)
+			return cid, param2
+		end
 		local start = current_structure_start ()
 		notify_generated ("mcl_villages:village_chest", x, y, z, {
 			x = x,
@@ -331,6 +346,7 @@ local function place_villagers (piece, rng, x1, z1, x2, z2)
 				poi = poi,
 				bell = bell,
 				is_zombie = start.is_zombie,
+				is_city = start.is_city,
 			})
 		end
 	end
@@ -650,6 +666,83 @@ end
 local get_schematic_size = mcl_levelgen.get_schematic_size
 local lerp1d = mcl_levelgen.lerp1d
 
+local cid_cobble = core.get_content_id ("mcl_core:cobble")
+local cid_sandstone = core.get_content_id ("mcl_core:sandstone")
+local cid_stonebrick = core.get_content_id ("mcl_core:stonebrick")
+local cid_gravel = core.get_content_id ("mcl_core:gravel")
+local is_walkable = mcl_levelgen.is_walkable
+local MAX_GRADING = 4
+
+local function foundation_material ()
+	return village_type == "desert" and cid_sandstone or cid_cobble
+end
+
+local function grade_column (x, z, ground, fill)
+	for y = ground, ground - MAX_GRADING, -1 do
+		local cid = get_block (x, y, z)
+		if cid then
+			if is_walkable (cid) then
+				break
+			end
+			set_block (x, y, z, fill, 0)
+		end
+	end
+	for y = ground + 1, ground + MAX_GRADING do
+		local cid = get_block (x, y, z)
+		if cid and cid ~= cid_air then
+			set_block (x, y, z, cid_air, 0)
+		end
+	end
+end
+
+local function place_graded_plot (self, level, terrain, rng, x1, z1, x2, z2)
+	local bbox = self.bbox
+	for x, _, z in ipos3 (mathmax (bbox[1], x1), 0, mathmax (bbox[3], z1),
+			      mathmin (bbox[4], x2), 0, mathmin (bbox[6], z2)) do
+		grade_column (x, z, self.plot_floor, self.foundation_material)
+	end
+	self:place_schematic (level, terrain, rng, x1, z1, x2, z2)
+end
+
+local function grade_plot (piece, ground)
+	piece.plot_floor = ground
+	piece.foundation_material = foundation_material ()
+	piece.place_schematic = piece.place
+	piece.place = place_graded_plot
+	piece.no_terrain_adaptation = true
+end
+
+local function surface_survey (level, terrain)
+	local heights = {}
+	return function (x, z)
+		local row = heights[x]
+		if not row then
+			row = {}
+			heights[x] = row
+		end
+		if row[z] == nil then
+			-- Sample dry land without running the aquifer density pass.
+			local floor_y = terrain:get_one_height (x, z) - 1
+			row[z] = floor_y > level.preset.sea_level and floor_y or false
+		end
+		return row[z]
+	end
+end
+
+local function plot_fits (surface, bbox, ground)
+	for i = 0, 2 do
+		for j = 0, 2 do
+			local x = floor (lerp1d (i / 2, bbox[1], bbox[4]))
+			local z = floor (lerp1d (j / 2, bbox[3], bbox[6]))
+			local y = surface (x, z)
+			if not y or mathabs (ground - y) > MAX_GRADING then
+				return false
+			end
+		end
+	end
+	return true
+end
+
 local function is_terrain_suitable (terrain, bbox, y_dst)
 	local h1 = terrain:get_one_height (bbox[1], bbox[3], is_not_air)
 	local h2 = terrain:get_one_height (bbox[4], bbox[3], is_not_air)
@@ -664,12 +757,20 @@ local function is_terrain_suitable (terrain, bbox, y_dst)
 	return true
 end
 
-local function fit_building_to_position (templates, terrain, pool_type, pieces, rng,
-					 x, y_min, z, target, parent)
-	local list = templates[pool_type]
-	local idx = 1 + rng:next_within (#list)
-	local component = list[idx]
+local function record_building_sites (component, piece)
+	local bbox, rotation = piece.bbox, piece.rotation
+	for _, bed in ipairs (component.beds) do
+		local x, z = rotate_exit (rotation, bbox, bed[1], bed[3])
+		insert (beds_to_assign, {x, bed[2] + bbox[2], z, piece})
+	end
+	for _, poi in ipairs (component.pois) do
+		local x, z = rotate_exit (rotation, bbox, poi[1], poi[3])
+		insert (pois_to_assign, {x, poi[2] + bbox[2], z, poi[4]})
+	end
+end
 
+local function fit_building (component, terrain, pieces, rng, x, y_min, z,
+			     target, parent, surface)
 	-- Select an entrance.
 	local entrance = select_connecting (rng, component)
 	if not entrance then
@@ -693,12 +794,17 @@ local function fit_building_to_position (templates, terrain, pool_type, pieces, 
 	local x_target, z_target = rotate_exit (diff, bbox, entrance.x, entrance.z)
 
 	local x_dst, z_dst = x - x_target, z - z_target
-	local y_dst = terrain:get_one_height (x_dst, z_dst, is_not_air)
-	local y_diff = y_dst - y_min
-	if y_diff < -4 then
-		y_dst = y_min - 4
-	elseif y_diff > 2 then
-		y_dst = y_min + 4
+	local y_dst
+	if surface then
+		y_dst = y_min + 1
+	else
+		y_dst = terrain:get_one_height (x_dst, z_dst, is_not_air)
+		local y_diff = y_dst - y_min
+		if y_diff < -4 then
+			y_dst = y_min - 4
+		elseif y_diff > 2 then
+			y_dst = y_min + 4
+		end
 	end
 	-- (schematic_id, x, y, z, rotation, rng, center, force_place,
 	--  processors, placement_sentinel, ground_offset)
@@ -706,31 +812,38 @@ local function fit_building_to_position (templates, terrain, pool_type, pieces, 
 	bbox[3] = bbox[3] + z_dst
 	bbox[4] = bbox[4] + x_dst
 	bbox[6] = bbox[6] + z_dst
-	if not any_collisions_2d (pieces, bbox, parent)
-		-- Verify that the surface on which this building is
-		-- to be positioned is not too unstable to be
-		-- suitable.
-		and is_terrain_suitable (terrain, bbox, y_dst) then
-		local base_y = y_dst - entrance.y
-		local piece = make_schematic_piece (sid, x_dst, base_y,
-						    z_dst, diff, rng, false, true,
-						    village_processors,
-						    place_villagers, entrance.y)
-		piece.village_pool = pool_type
-		insert (pieces, piece)
-
-		for _, bed in ipairs (component.beds) do
-			local x, z = rotate_exit (diff, bbox, bed[1], bed[3])
-			local y = bed[2] + base_y
-			insert (beds_to_assign, {x, y, z, piece,})
-		end
-		for _, poi in ipairs (component.pois) do
-			local x, z = rotate_exit (diff, bbox, poi[1], poi[3])
-			local y = poi[2] + base_y
-			insert (pois_to_assign, {x, y, z, poi[4],})
-		end
+	if any_collisions_2d (pieces, bbox, parent) then
+		return
 	end
-	return
+	if surface then
+		if not plot_fits (surface, bbox, y_min) then
+			return
+		end
+	elseif not is_terrain_suitable (terrain, bbox, y_dst) then
+		return
+	end
+	local base_y = y_dst - entrance.y
+	local piece = make_schematic_piece (sid, x_dst, base_y,
+					    z_dst, diff, rng, false, true,
+					    village_processors,
+					    place_villagers, entrance.y)
+	if surface then
+		grade_plot (piece, y_min)
+	end
+	insert (pieces, piece)
+	record_building_sites (component, piece)
+	return piece
+end
+
+local function fit_building_to_position (templates, terrain, pool_type, pieces, rng,
+					 x, y_min, z, target, parent)
+	local list = templates[pool_type]
+	local component = list[1 + rng:next_within (#list)]
+	local piece = fit_building (component, terrain, pieces, rng, x, y_min,
+				    z, target, parent)
+	if piece then
+		piece.village_pool = pool_type
+	end
 end
 
 local PATH_EXITS = {
@@ -920,8 +1033,206 @@ local function build_path (templates, terrain, parent, pieces, exit, rotation,
 	return true
 end
 
+local settlement_layouts = {
+	village = {
+		square = "village_green", road_length = 24, half_width = 1,
+		pavement = cid_dirt_path, landmarks = 0,
+		min_buildings = 6, max_buildings = 10, min_beds = 6,
+	},
+	town = {
+		square = "town_square", road_length = 35, half_width = 1,
+		pavement = cid_gravel, landmarks = 3,
+		min_buildings = 12, max_buildings = 18, min_beds = 12,
+	},
+	city = {
+		square = "city_square", road_length = 53, half_width = 2,
+		pavement = cid_stonebrick, landmarks = 4,
+		min_buildings = 20, max_buildings = 30, min_beds = 22,
+		side_streets = true,
+	},
+}
+
+local function place_settlement_road (self, level, terrain, rng, x1, z1, x2, z2)
+	local bbox = self.bbox
+	for x, _, z in ipos3 (mathmax (bbox[1], x1), 0, mathmax (bbox[3], z1),
+			      mathmin (bbox[4], x2), 0, mathmin (bbox[6], z2)) do
+		local row = 1 + (x - self.x) * self.dx + (z - self.z) * self.dz
+		local ground = self.grades[row]
+		grade_column (x, z, ground, self.foundation_material)
+		set_block (x, ground, z, self.pavement, 0)
+	end
+end
+
+local function plan_settlement_road (pieces, surface, x, z, direction, ground,
+				      length, half_width, pavement)
+	local grades = {}
+	local min_y, max_y = ground, ground
+	local dx, dz = rotate (direction, 0, -1)
+	local sx, sz = rotate (direction, 1, 0)
+	for row = 0, length - 1 do
+		local rx, rz = x + row * dx, z + row * dz
+		local natural = surface (rx, rz)
+		if not natural then
+			break
+		end
+		ground = mathmax (ground - 1, mathmin (ground + 1, natural))
+		local suitable = true
+		for offset = -half_width, half_width do
+			local edge = surface (rx + offset * sx, rz + offset * sz)
+			if not edge or mathabs (edge - ground) > MAX_GRADING then
+				suitable = false
+				break
+			end
+		end
+		if not suitable then
+			break
+		end
+		local bbox = make_bbox_sorted (rx - half_width * sx, ground, rz - half_width * sz,
+					       rx + half_width * sx, ground, rz + half_width * sz)
+		if any_collisions_2d (pieces, bbox, nil) then
+			break
+		end
+		insert (grades, ground)
+		min_y, max_y = mathmin (min_y, ground), mathmax (max_y, ground)
+	end
+	if #grades < 9 then
+		return nil
+	end
+
+	local span = #grades - 1
+	local bbox = make_bbox_sorted (x - half_width * sx, min_y, z - half_width * sz,
+				       x + span * dx + half_width * sx, max_y,
+				       z + span * dz + half_width * sz)
+	local road = {
+		bbox = bbox, x = x, z = z, dx = dx, dz = dz, direction = direction,
+		grades = grades, half_width = half_width,
+		no_terrain_adaptation = true, place = place_settlement_road,
+		foundation_material = foundation_material (),
+		pavement = village_type == "desert" and cid_smooth_sandstone or pavement,
+	}
+	insert (pieces, road)
+	return road
+end
+
+local function road_lots (roads, rng, length)
+	local lots = {}
+	-- Work outward from the square and leave gaps between neighbouring plots.
+	for row = 5, length, 10 do
+		for _, road in ipairs (roads) do
+			for _, side in ipairs ({-1, 1}) do
+				local i = row + rng:next_within (3)
+				local ground = road.grades[i]
+				if ground then
+					local dx, dz = rotate (road.direction, side * (road.half_width + 1), 1 - i)
+					local direction = compose_rotation (road.direction, side < 0 and "270" or "90")
+					insert (lots, {x = road.x + dx, z = road.z + dz, ground = ground,
+						      direction = direction})
+				end
+			end
+		end
+	end
+	return lots
+end
+
+local function build_settlement (layout, templates, level, terrain, pieces,
+				 rng, x, z, rotation)
+	local component = settlement_squares[layout.square]
+	local surface = surface_survey (level, terrain)
+	local ground = surface (x, z)
+	if not ground then
+		return nil
+	end
+	local square = make_schematic_piece (component.schematic, x, ground, z, rotation,
+					     rng, true, true, village_processors, place_belltower, 1)
+	if not plot_fits (surface, square.bbox, ground) then
+		return nil
+	end
+	grade_plot (square, ground)
+	insert (pieces, square)
+	record_building_sites (component, square)
+
+	local roads = {}
+	for _, exit in ipairs (component.exits) do
+		local px, pz = rotate_exit (rotation, square.bbox, exit.x, exit.z)
+		local direction = compose_rotation (rotation, exit.orientation)
+		local dx, dz = rotate (direction, 0, -1)
+		local length = layout.road_length - rng:next_within (5)
+		local road = plan_settlement_road (pieces, surface, px + dx, pz + dz, direction,
+						   ground, length, layout.half_width, layout.pavement)
+		if road then
+			insert (roads, road)
+		end
+	end
+	if #roads < 3 then
+		return nil
+	end
+	if layout.side_streets then
+		local main_streets = #roads
+		for i = 1, main_streets do
+			local road = roads[i]
+			local row = 24 + rng:next_within (4)
+			if road.grades[row] then
+				local direction = compose_rotation (road.direction, "90")
+				local dx, dz = rotate (road.direction, road.half_width + 1, 1 - row)
+				local side_street = plan_settlement_road (pieces, surface, road.x + dx, road.z + dz,
+									  direction, road.grades[row], 23, 1, cid_gravel)
+				if side_street then
+					insert (roads, side_street)
+				end
+			end
+		end
+		if #roads < main_streets + 2 then
+			return nil
+		end
+	end
+
+	local lots = road_lots (roads, rng, layout.road_length)
+	local function try_lot (building, lot)
+		if not lot.occupied and fit_building (building, terrain, pieces, rng, lot.x, lot.ground, lot.z,
+						     lot.direction, nil, surface) then
+			lot.occupied = true
+			return true
+		end
+		return false
+	end
+
+	-- Reserve plots for each landmark before ordinary houses and workshops.
+	for i = 1, layout.landmarks do
+		local placed
+		for _, lot in ipairs (lots) do
+			if try_lot (settlement_landmarks[i], lot) then
+				placed = true
+				break
+			end
+		end
+		if not placed then
+			return nil
+		end
+	end
+
+	local buildings = layout.landmarks
+	for i, lot in ipairs (lots) do
+		if buildings >= layout.max_buildings then
+			break
+		end
+		if not lot.occupied then
+			local pool = (i % 3 == 0 or #beds_to_assign < layout.min_beds / 2)
+				and "house_buildings" or get_pool_type (rng)
+			local list = templates[pool]
+			local building = list[1 + rng:next_within (#list)]
+			local houses = templates.house_buildings
+			if try_lot (building, lot) or try_lot (houses[1 + rng:next_within (#houses)], lot) then
+				buildings = buildings + 1
+			end
+		end
+	end
+	if buildings >= layout.min_buildings and #beds_to_assign >= layout.min_beds then
+		return component, square
+	end
+end
+
 local function village_start (templates, terrain, x, z, pieces, rotation,
-			      zombie, rng)
+			      rng)
 	local y = terrain:get_one_height (x, z, is_not_air)
 	local belltower, component
 		= select_standalone_piece (rng, templates,
@@ -939,7 +1250,24 @@ end
 
 local fisher_yates = mcl_levelgen.fisher_yates
 
-local function assign_villagers (rng, bell, belltower_piece, beds, pois)
+local function nearest_site (pos, sites)
+	local closest, distance = nil, 33
+	for i, site in ipairs (sites) do
+		local d = mathabs (pos[1] - site[1]) + mathabs (pos[2] - site[2])
+			+ mathabs (pos[3] - site[3])
+		if d < distance then
+			closest, distance = i, d
+		end
+	end
+	return closest
+end
+
+local city_jobs = {
+	"mcl_cartography_table:cartography_table",
+	"mcl_blast_furnace:blast_furnace",
+}
+
+local function assign_villagers (rng, bell, belltower_piece, beds, pois, graded, is_city)
 	fisher_yates (beds, rng)
 	fisher_yates (pois, rng)
 
@@ -950,20 +1278,40 @@ local function assign_villagers (rng, bell, belltower_piece, beds, pois)
 
 	local assignments = {}
 	local assigned_pois = {}
-	local n_pois = #pois
-	-- No village can support more than 32 villagers.
-	for i = 1, mathmin (32, #beds) do
-		if i < n_pois then
-			insert (assignments, { beds[i], pois[i], })
-			insert (assigned_pois, pois[i])
-		else
-			insert (assignments, { beds[i], nil, })
+	local function assign (bed, job)
+		insert (assignments, {bed, job})
+		if job then
+			insert (assigned_pois, job)
 		end
-		insert (assigned_pois, {
-			beds[i][1],
-			beds[i][2],
-			beds[i][3],
-		})
+		insert (assigned_pois, {bed[1], bed[2], bed[3]})
+	end
+	if is_city then
+		-- Give the city services a nearby resident before handing out
+		-- the remaining jobs. Both workstations are near the square.
+		for _, node_name in ipairs (city_jobs) do
+			for i, poi in ipairs (pois) do
+				if poi[4] == node_name then
+					local bed = nearest_site (poi, beds)
+					if bed then
+						assign (table.remove (beds, bed), table.remove (pois, i))
+						break
+					end
+				end
+			end
+		end
+	end
+
+	-- No settlement can support more than 32 initial villagers.
+	local n_pois = #pois
+	for i = 1, mathmin (32 - #assignments, #beds) do
+		local job
+		if graded then
+			local index = nearest_site (beds[i], pois)
+			job = index and table.remove (pois, index)
+		elseif i < n_pois then
+			job = pois[i]
+		end
+		assign (beds[i], job)
 	end
 	return assignments, { bell_x, bell_y, bell_z, }, assigned_pois
 end
@@ -987,25 +1335,21 @@ local function assemble_village (self, level, terrain, rng, x, z)
 	-- structure.
 
 	local rotation = rotations[1 + rng:next_within (4)]
-	local zombie
+	local zombie = false
 	village_type = self.village_type
-	if village_type == "savannah" then
-		local i = rng:next_within (459)
-		zombie = i >= 450
-	elseif village_type == "desert" then
-		local i = rng:next_within (250)
-		zombie = i >= 245
-	elseif village_type == "taiga" then
-		local i = rng:next_within (100)
-		zombie = i >= 98
-	elseif village_type == "snowy" then
-		local i = rng:next_within (306)
-		zombie = i >= 300
-	elseif village_type == "plains" then
-		local i = rng:next_within (204)
-		zombie = i >= 200
-	else
-		zombie = false
+	if not self.layout then
+		-- Only small villages have abandoned variants.
+		if village_type == "savannah" then
+			zombie = rng:next_within (459) >= 450
+		elseif village_type == "desert" then
+			zombie = rng:next_within (250) >= 245
+		elseif village_type == "taiga" then
+			zombie = rng:next_within (100) >= 98
+		elseif village_type == "snowy" then
+			zombie = rng:next_within (306) >= 300
+		elseif village_type == "plains" then
+			zombie = rng:next_within (204) >= 200
+		end
 	end
 	village_center_x = x
 	village_center_z = z
@@ -1018,20 +1362,38 @@ local function assemble_village (self, level, terrain, rng, x, z)
 		or self.processors
 	beds_to_assign = {}
 	pois_to_assign = {}
-	village_rng:reseed (rng:next_long ())
+	local seed = rng:next_long ()
+	village_rng:reseed (seed)
 	local belltower, belltower_piece
-		= village_start (templates, terrain, x + dx, z + dz,
-				 pieces, rotation, zombie, village_rng)
+	local layout = self.layout or (not zombie and dx >= 4 and settlement_layouts.village)
+	if layout then
+		belltower, belltower_piece
+			= build_settlement (layout, templates, level, terrain, pieces, village_rng,
+					    x + dx, z + dz, rotation)
+		if not belltower then
+			if self.layout then
+				return false
+			end
+			pieces, beds_to_assign, pois_to_assign = {}, {}, {}
+			village_rng:reseed (seed)
+		end
+	end
+	local graded = belltower ~= nil
+	if not graded then
+		belltower, belltower_piece
+			= village_start (templates, terrain, x + dx, z + dz, pieces, rotation, village_rng)
+	end
 	local start = mcl_levelgen.create_structure_start (self, pieces)
 	start.crops = assemble_crops (village_type, village_rng)
 	start.type = village_type
 	start.is_zombie = zombie
+	start.is_city = self.layout == settlement_layouts.city
 	local assigned_pois
 	start.villager_assignments, start.bell, assigned_pois
 		= assign_villagers (village_rng, belltower.bell,
 				    belltower_piece,
 				    beds_to_assign,
-				    pois_to_assign)
+				    pois_to_assign, graded, start.is_city)
 	-- The village generator is liable to be invoked by `/locate'
 	-- within the main environment when ersatz generation is
 	-- enabled.
@@ -1060,138 +1422,61 @@ end
 -- Village registration.
 ------------------------------------------------------------------------
 
-local village_desert_biomes = {
-	"Desert",
+local biome_variants = {
+	{"plains", {"Plains", "Meadow"}, plains_village_template},
+	{"desert", {"Desert"}, desert_village_template, "desert"},
+	{"savannah", {"Savannah"}, savannah_village_template, "acacia"},
+	{"snowy", {"SnowyPlains"}, snowy_village_template, "spruce"},
+	{"taiga", {"Taiga"}, taiga_village_template, "spruce"},
 }
 
-local village_plains_biomes = {
-	"Plains",
-	"Meadow",
-}
+local village_definitions = {}
+for _, variant in ipairs (biome_variants) do
+	local name, biomes, template, material = unpack (variant)
+	local group = "has_village_" .. name
+	mcl_levelgen.modify_biome_groups (biomes, {[group] = true})
+	local processors = default_village_processor_list
+	local zombie_processors = zombie_village_processor_list
+	if material then
+		local replace = load_material_substitution_list (material)
+		processors = {replace, unpack (processors)}
+		zombie_processors = {replace, unpack (zombie_processors)}
+	end
+	village_definitions[name] = {
+		create_start = village_create_start,
+		village_template = template,
+		step = mcl_levelgen.SURFACE_STRUCTURES,
+		terrain_adaptation = "beard_thin",
+		biomes = mcl_levelgen.build_biome_list ({"#" .. group}),
+		village_type = name,
+		processors = processors,
+		zombie_processors = zombie_processors,
+	}
+end
 
-local village_savannah_biomes = {
-	"Savannah",
-}
-
-local village_snowy_biomes = {
-	"SnowyPlains",
-}
-
-local village_taiga_biomes = {
-	"Taiga",
-}
-
-mcl_levelgen.modify_biome_groups (village_desert_biomes, {
-	has_village_desert = true,
-})
-
-mcl_levelgen.modify_biome_groups (village_plains_biomes, {
-	has_village_plains = true,
-})
-
-mcl_levelgen.modify_biome_groups (village_savannah_biomes, {
-	has_village_savannah = true,
-})
-
-mcl_levelgen.modify_biome_groups (village_snowy_biomes, {
-	has_village_snowy = true,
-})
-
-mcl_levelgen.modify_biome_groups (village_taiga_biomes, {
-	has_village_taiga = true,
-})
-
-mcl_levelgen.register_structure ("mcl_villages:village_plains", {
-	create_start = village_create_start,
-	village_template = plains_village_template,
-	step = mcl_levelgen.SURFACE_STRUCTURES,
-	terrain_adaptation = "beard_thin",
-	biomes = mcl_levelgen.build_biome_list ({"#has_village_plains",}),
-	village_type = "plains",
-	processors = {
-		unpack (default_village_processor_list)
-	},
-	zombie_processors = {
-		unpack (zombie_village_processor_list)
-	},
-})
-
-mcl_levelgen.register_structure ("mcl_villages:village_desert", {
-	create_start = village_create_start,
-	village_template = desert_village_template,
-	step = mcl_levelgen.SURFACE_STRUCTURES,
-	terrain_adaptation = "beard_thin",
-	biomes = mcl_levelgen.build_biome_list ({"#has_village_desert",}),
-	village_type = "desert",
-	processors = {
-		load_material_substitution_list ("desert"),
-		unpack (default_village_processor_list)
-	},
-	zombie_processors = {
-		load_material_substitution_list ("desert"),
-		unpack (zombie_village_processor_list)
-	},
-})
-
-mcl_levelgen.register_structure ("mcl_villages:village_savannah", {
-	create_start = village_create_start,
-	village_template = savannah_village_template,
-	step = mcl_levelgen.SURFACE_STRUCTURES,
-	terrain_adaptation = "beard_thin",
-	biomes = mcl_levelgen.build_biome_list ({"#has_village_savannah",}),
-	village_type = "savannah",
-	processors = {
-		load_material_substitution_list ("acacia"),
-		unpack (default_village_processor_list)
-	},
-	zombie_processors = {
-		load_material_substitution_list ("acacia"),
-		unpack (zombie_village_processor_list)
-	},
-})
-
-mcl_levelgen.register_structure ("mcl_villages:village_snowy", {
-	create_start = village_create_start,
-	village_template = snowy_village_template,
-	step = mcl_levelgen.SURFACE_STRUCTURES,
-	terrain_adaptation = "beard_thin",
-	biomes = mcl_levelgen.build_biome_list ({"#has_village_snowy",}),
-	village_type = "snowy",
-	processors = {
-		load_material_substitution_list ("spruce"),
-		unpack (default_village_processor_list)
-	},
-	zombie_processors = {
-		load_material_substitution_list ("spruce"),
-		unpack (zombie_village_processor_list)
-	},
-})
-
-mcl_levelgen.register_structure ("mcl_villages:village_taiga", {
-	create_start = village_create_start,
-	village_template = taiga_village_template,
-	step = mcl_levelgen.SURFACE_STRUCTURES,
-	terrain_adaptation = "beard_thin",
-	biomes = mcl_levelgen.build_biome_list ({"#has_village_taiga",}),
-	village_type = "taiga",
-	processors = {
-		load_material_substitution_list ("spruce"),
-		unpack (default_village_processor_list)
-	},
-	zombie_processors = {
-		load_material_substitution_list ("spruce"),
-		unpack (zombie_village_processor_list)
-	},
-})
+local settlements = {}
+-- Pick at most one settlement per site and keep the village placement grid
+-- and the existing pillager outpost exclusion zone.
+for _, tier in ipairs ({{"village", 78}, {"town", 18}, {"city", 4}}) do
+	local kind, weight = unpack (tier)
+	for _, variant in ipairs (biome_variants) do
+		local name = variant[1]
+		local id = "mcl_villages:" .. kind .. "_" .. name
+		local def = {}
+		for key, value in pairs (village_definitions[name]) do
+			def[key] = value
+		end
+		if kind ~= "village" then
+			def.layout = settlement_layouts[kind]
+			def.terrain_adaptation = "none"
+		end
+		mcl_levelgen.register_structure (id, def)
+		insert (settlements, {structure = id, weight = weight})
+	end
+end
 
 mcl_levelgen.register_structure_set ("mcl_villages:villages", {
-	structures = {
-		"mcl_villages:village_plains",
-		"mcl_villages:village_desert",
-		"mcl_villages:village_savannah",
-		"mcl_villages:village_snowy",
-		"mcl_villages:village_taiga",
-	},
+	structures = settlements,
 	placement = R (1.0, "default", 34, 8, 10387312, "linear", nil, nil),
 })
 

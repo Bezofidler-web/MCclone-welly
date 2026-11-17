@@ -1,6 +1,5 @@
 return function (camel, camel_husk)
 	local storage = core.get_mod_storage ()
-	local village_id = "mcl_villages:village_desert"
 	local clearance = table.merge (mcl_mobs.default_spawner, {name = camel})
 	local pending = {}
 	local desert
@@ -8,20 +7,25 @@ return function (camel, camel_husk)
 		desert = mcl_biome_dispatch.make_biome_test ({"Desert"})
 	end)
 
-	local function desert_village (bell)
+	local function desert_settlement (bell)
 		if mcl_levelgen.levelgen_enabled or mcl_levelgen.enable_ersatz then
-			local other_village = false
+			local other_settlement = false
 			for _, area in pairs (mcl_levelgen.get_structures_at (bell, false)) do
-				if area.data == village_id then return true end
-				if area.data and area.data:find ("^mcl_villages:village_") then other_village = true end
+				if area.data then
+					local tier, biome = area.data:match ("^mcl_villages:(%a+)_(.+)$")
+					if tier == "village" or tier == "town" or tier == "city" then
+						if biome == "desert" then return true end
+						other_settlement = true
+					end
+				end
 			end
-			if other_village then return false end
+			if other_settlement then return false end
 		end
 		return desert (mcl_biome_dispatch.get_biome_name (bell))
 	end
 
 	local function spawn_near_bell (bell, key, retries)
-		if not desert_village (bell) then
+		if not desert_settlement (bell) then
 			pending[key] = nil
 			return
 		end

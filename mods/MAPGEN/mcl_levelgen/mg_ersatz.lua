@@ -516,9 +516,49 @@ end
 local function write_gen_notifies (dim, minp, maxp)
 	local notifies, pieces
 		= mcl_levelgen.flush_structure_gen_data ()
+	local settlement_bounds = {}
+	for _, piece in ipairs (pieces) do
+		if piece[7]:find ("^mcl_villages:") then
+			-- Keep the full footprint where it extends into the emerged
+			-- border. Trees can place branches and roots there too.
+			table.insert (settlement_bounds, {
+				piece[1], piece[2] - dim.y_offset, -piece[6] - 1,
+				piece[4], piece[5] - dim.y_offset + 2, -piece[3] - 1,
+			})
+		end
+	end
 	transform_structure_pieces (pieces, dim, minp, maxp)
 	core.save_gen_notify ("mcl_levelgen:gen_notifies", notifies)
 	core.save_gen_notify ("mcl_levelgen:structure_pieces", pieces)
+	return settlement_bounds
+end
+
+local decorated_cids = {}
+local decorated_param2s = {}
+
+local function protect_settlement_pieces (vm, min, max, bounds)
+	if #bounds == 0 then
+		return
+	end
+	-- Forced decorations such as mangrove schematics can overwrite
+	-- roofs, street clearance and beds after structures are placed.
+	vm:get_data (decorated_cids)
+	vm:get_param2_data (decorated_param2s)
+	local area = VoxelArea (min, max)
+	for _, box in ipairs (bounds) do
+		local x1, x2 = mathmax (min.x, box[1]), mathmin (max.x, box[4])
+		for z = mathmax (min.z, box[3]), mathmin (max.z, box[6]) do
+			for y = mathmax (min.y, box[2]), mathmin (max.y, box[5]) do
+				local i = area:index (x1, y, z)
+				for j = i, i + x2 - x1 do
+					decorated_cids[j] = cids[j]
+					decorated_param2s[j] = param2s[j]
+				end
+			end
+		end
+	end
+	vm:set_data (decorated_cids)
+	vm:set_param2_data (decorated_param2s)
 end
 
 local cid_biome_dust = core.ipc_get ("mcl_biomes:biome_dust_cids")
@@ -598,6 +638,7 @@ core.register_on_generated (function (vm, minp, maxp, _)
 	vm:get_param2_data (param2s)
 
 	local generated = false
+	local settlement_bounds = {}
 
 	for y1, y2, ystart, yend, dim in dims_intersecting (minp.y, maxp.y) do
 		if generated then
@@ -625,13 +666,14 @@ core.register_on_generated (function (vm, minp, maxp, _)
 		do_terrain_modifications (min, max, minp, maxp, y1, y2,
 					  ystart, yend, dim)
 		restore_data_from_gn (min, max, minp, maxp, y1, y2)
-		write_gen_notifies (dim, minp, maxp)
+		settlement_bounds = write_gen_notifies (dim, minp, maxp)
 		generated = true
 	end
 
 	vm:set_data (cids)
 	vm:set_param2_data (param2s)
 	core.generate_decorations (vm, minp, maxp, true)
+	protect_settlement_pieces (vm, min, max, settlement_bounds)
 	generate_biome_dust (vm, min, max, minp, maxp)
 	vm:set_lighting ({day = 0, night = 0,}, minp, maxp)
 	vm:calc_lighting (minp, maxp)

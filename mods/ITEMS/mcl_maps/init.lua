@@ -1222,6 +1222,19 @@ mcl_maps.register_explorer_map ("mcl_maps:trial_explorer_map", "#c26b4c", {
 	_skip_existing_chunks = true,
 })
 
+mcl_maps.register_explorer_map ("mcl_maps:city_explorer_map", "#926947", {
+	description = S ("City Explorer Map"),
+	_explorer_map_structures = {
+		"mcl_villages:city_plains",
+		"mcl_villages:city_desert",
+		"mcl_villages:city_savannah",
+		"mcl_villages:city_snowy",
+		"mcl_villages:city_taiga",
+	},
+	_treasure_symbol = build_map_icon_texture (12, 1),
+	_skip_existing_chunks = true,
+})
+
 mcl_maps.register_explorer_map ("mcl_maps:buried_treasure_map", "#675aad", {
 	description = S ("Buried Treasure Map"),
 	_explorer_map_structures = {
@@ -1235,6 +1248,8 @@ mcl_maps.register_explorer_map ("mcl_maps:plains_village_map", "#848484", {
 	description = S ("Plains Village Map"),
 	_explorer_map_structures = {
 		"mcl_villages:village_plains",
+		"mcl_villages:town_plains",
+		"mcl_villages:city_plains",
 	},
 	_treasure_symbol = build_map_icon_texture (12, 1),
 	_skip_existing_chunks = true,
@@ -1245,6 +1260,8 @@ mcl_maps.register_explorer_map ("mcl_maps:desert_village_map", "#848484", {
 	description = S ("Desert Village Map"),
 	_explorer_map_structures = {
 		"mcl_villages:village_desert",
+		"mcl_villages:town_desert",
+		"mcl_villages:city_desert",
 	},
 	_treasure_symbol = build_map_icon_texture (11, 1),
 	_skip_existing_chunks = true,
@@ -1254,6 +1271,8 @@ mcl_maps.register_explorer_map ("mcl_maps:savannah_village_map", "#848484", {
 	description = S ("Savanna Village Map"),
 	_explorer_map_structures = {
 		"mcl_villages:village_savannah",
+		"mcl_villages:town_savannah",
+		"mcl_villages:city_savannah",
 	},
 	_treasure_symbol = build_map_icon_texture (13, 1),
 	_skip_existing_chunks = true,
@@ -1263,6 +1282,8 @@ mcl_maps.register_explorer_map ("mcl_maps:snowy_village_map", "#848484", {
 	description = S ("Snowy Village Map"),
 	_explorer_map_structures = {
 		"mcl_villages:village_snowy",
+		"mcl_villages:town_snowy",
+		"mcl_villages:city_snowy",
 	},
 	_treasure_symbol = build_map_icon_texture (14, 1),
 	_skip_existing_chunks = true,
@@ -1272,6 +1293,8 @@ mcl_maps.register_explorer_map ("mcl_maps:taiga_village_map", "#848484", {
 	description = S ("Taiga Village Map"),
 	_explorer_map_structures = {
 		"mcl_villages:village_taiga",
+		"mcl_villages:town_taiga",
+		"mcl_villages:city_taiga",
 	},
 	_treasure_symbol = build_map_icon_texture (15, 1),
 	_skip_existing_chunks = true,

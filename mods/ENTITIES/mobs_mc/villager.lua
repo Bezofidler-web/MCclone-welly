@@ -91,6 +91,7 @@ local trade_class = {
 	reward_xp = true,
 	price_multiplier = 0,
 	special_price_diff = 0,
+	city_discount = 0,
 	demand = 0,
 	xp = 0,
 	tier = 0,
@@ -109,8 +110,8 @@ function trade_class:get_wanted1 ()
 	local count = stack:get_count ()
 	local greed = self.price_multiplier
 	local gouge = math.max (0, math.floor (count * self.demand) * greed)
-		+ self.special_price_diff
-	local total = math.min (math.max (1, gouge + stack:get_count ()), max)
+		+ self.special_price_diff - self.city_discount
+	local total = math.min (math.max (1, gouge + count), max)
 	stack:set_count (total)
 	return stack
 end
@@ -166,6 +167,9 @@ end
 function mobs_mc.trade_from_table (self, pr, trade, reward_xp)
 	local wanted1 = ItemStack (eval_item (self, trade[1][1], pr))
 	wanted1:set_count (pr:next (trade[1][2], trade[1][3]))
+	local count = wanted1:get_count ()
+	local city_discount = self._city_resident and count >= 4
+		and math.max (1, math.floor (count * 0.15)) or 0
 
 	local wanted2 = ItemStack ()
 	if trade[1][4] then
@@ -197,6 +201,7 @@ function mobs_mc.trade_from_table (self, pr, trade, reward_xp)
 		xp = trade[4] or 1,
 		reward_xp = reward_xp,
 		price_multiplier = trade[5] or 0.0,
+		city_discount = city_discount,
 	})
 end
 
@@ -2357,6 +2362,10 @@ function villager:set_profession (name)
 	local profession = professions_by_name[name]
 
 	if self._profession ~= name then
+		if self._city_resident and self._xp == 0 and name ~= "nitwit" then
+			self._tier = (name == "armorer" or name == "cartographer") and 3 or 2
+			self._xp = tier_thresholds[self._tier]
+		end
 		self.description = profession.description
 		self._profession = name
 		self.base_texture[1] = self:get_overlaid_texture ()
@@ -2454,6 +2463,7 @@ function villager:export_villager_data ()
 		tier = self._tier,
 		profession = self._profession,
 		villager_type = self._villager_type,
+		city_resident = self._city_resident,
 		gossips = self._gossips,
 		reputation = self._reputation,
 		trades = self._trades,

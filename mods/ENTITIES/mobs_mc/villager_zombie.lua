@@ -246,6 +246,7 @@ function zombie_villager:previous_staticdata ()
 		_tier = self._previous_incarnation.tier,
 		_profession = self._previous_incarnation.profession,
 		_villager_type = self._previous_incarnation.villager_type,
+		_city_resident = self._previous_incarnation.city_resident,
 		_gossips = self._previous_incarnation.gossips,
 		_reputation = self._previous_incarnation.reputation,
 		_trades = self._previous_incarnation.trades,
