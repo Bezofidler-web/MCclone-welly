@@ -3,6 +3,7 @@ local S = core.get_translator(core.get_current_modname())
 local F = core.formspec_escape
 local formname = "mcl_minimap:full_map"
 local enter_field = "__mcl_full_map"
+local player_field = "map_player_"
 local cells = 48
 local steps = {1, 2, 4}
 local range = 128
@@ -111,16 +112,19 @@ local function player_arrow(player)
 	return sprite .. "^[transformR" .. (angle - angle % 90)
 end
 
-local function add_player_markers(fs, player, dimension, pos, map_x, map_y, side, left, top, step)
+local function add_player_markers(fs, player, dimension, pos, map_x, map_y, side, left, top, step, data)
 	local name = player:get_player_name()
 	local span = cells * step
-	local function add(other_pos, image)
+	local function project(other_pos)
 		local dx = (other_pos.x - left + step / 2) / span
 		local dz = (top - other_pos.z + step / 2) / span
 		if dx >= 0.022 and dx <= 0.978 and dz >= 0.022 and dz <= 0.978 then
-			fs[#fs + 1] = marker(map_x + dx * side, map_y + dz * side, image)
+			return map_x + dx * side, map_y + dz * side
 		end
 	end
+	local x, y = project(pos)
+	if x then fs[#fs + 1] = marker(x, y, player_arrow(player)) end
+	local visible, selected_pos = {}, nil
 	for _, other in ipairs(core.get_connected_players()) do
 		if other ~= player and other:get_properties().show_on_minimap then
 			local other_pos = other:get_pos()
@@ -129,11 +133,26 @@ local function add_player_markers(fs, player, dimension, pos, map_x, map_y, side
 				and mcl_worlds.pos_to_dimension(other_pos) == dimension
 				and abs(pos.y - other_pos.y) <= map_depth
 				and abs(pos.x - other_pos.x) <= range and abs(pos.z - other_pos.z) <= range then
-				add(other_pos, "object_marker_red.png")
+				local other_name = other:get_player_name()
+				if other_name == data.selected_player then selected_pos = other_pos end
+				local mx, my = project(other_pos)
+				if mx then
+					local field = player_field .. other_name
+					visible[field] = other_name
+					local image = "object_marker_red.png"
+					if other_name == data.selected_player then
+						image = image .. "^[colorize:#FFD166:180"
+					end
+					fs[#fs + 1] = ("image_button[%g,%g;0.48,0.48;%s;%s;;false;false]")
+						:format(mx - 0.24, my - 0.24, F(image), F(field))
+					fs[#fs + 1] = ("tooltip[%s;%s]"):format(F(field), F(other_name))
+				end
 			end
 		end
 	end
-	add(pos, player_arrow(player))
+	data.visible_players = visible
+	if not selected_pos then data.selected_player = nil end
+	return selected_pos
 end
 
 local function allowed(player)
@@ -146,6 +165,7 @@ local function render(player, data)
 	local dimension = mcl_worlds.pos_to_dimension(pos)
 	if data.dimension ~= dimension then
 		data.dimension = dimension
+		data.selected_player = nil
 		local block = vector.round(pos)
 		data.home_x, data.home_z = block.x, block.z
 		data.pan_x, data.pan_z = 0, 0
@@ -171,12 +191,21 @@ local function render(player, data)
 	local map_x, map_y, side = 0.45, 1.55, 12.9
 	local control_x, control_y, control_width = 14.0, 1.55, 7.5
 	if portrait then
-		width, height = 12.1, 18.55
+		width, height = 12.1, 19.55
 		side = 10.7
 		control_x, control_y, control_width = 0.45, 13.05, 11.2
 	end
+	local screen = window and window.max_formspec_size
+	if screen then
+		width, height = max(width, screen.x), max(height, screen.y)
+		if not portrait then
+			side = min(width - 9.1, height - 2.4)
+			control_x = map_x + side + 0.65
+			control_width = width - control_x - 0.5
+		end
+	end
 	local fs = {
-		("formspec_version[8]size[%g,%g]padding[0.02,0.02]"):format(width, height), style,
+		("formspec_version[8]size[%g,%g]padding[0,0]"):format(width, height), style,
 		("box[0,0;%g,%g;#202721]"):format(width, height),
 		"style_type[label;font_size=*1.25]",
 		label(0.45, 0.52, S("World Map")),
@@ -189,7 +218,7 @@ local function render(player, data)
 		("scrollbar[%g,%g;%g,0.37;horizontal;pan_x;%d]"):format(map_x, map_y + side + 0.12, side, range + data.pan_x),
 		("scrollbar[%g,%g;0.37,%g;vertical;pan_z;%d]"):format(map_x + side + 0.12, map_y, side, range - data.pan_z),
 	}
-	add_player_markers(fs, player, dimension, pos, map_x, map_y, side, left, top, step)
+	local selected_pos = add_player_markers(fs, player, dimension, pos, map_x, map_y, side, left, top, step, data)
 	local half = (control_width - 0.16) / 2
 	local third = (control_width - 0.32) / 3
 	local right = control_x + half + 0.16
@@ -205,8 +234,15 @@ local function render(player, data)
 	fs[#fs + 1] = label(control_x + 0.57, control_y + 3.08, S("You"))
 	fs[#fs + 1] = marker(control_x + 2.07, control_y + 3.08, "object_marker_red.png")
 	fs[#fs + 1] = label(control_x + 2.40, control_y + 3.08, S("Nearby players"))
-	fs[#fs + 1] = ("textarea[%g,%g;%g,0.78;;;%s]"):format(control_x, control_y + 3.46, control_width,
-		F(S("North is up. Blank areas have no loaded terrain at this depth.")))
+	if selected_pos then
+		local target = vector.round(selected_pos)
+		fs[#fs + 1] = label(control_x, control_y + 3.72,
+			S("@1  ·  @2 blocks away", data.selected_player, floor(vector.distance(pos, selected_pos) + 0.5)))
+		fs[#fs + 1] = label(control_x, control_y + 4.17,
+			S("X @1   Y @2   Z @3", target.x, target.y, target.z))
+	else
+		fs[#fs + 1] = label(control_x, control_y + 3.72, S("Select a player marker for their location."))
+	end
 	fs[#fs + 1] = button(control_x, height - 1.08, control_width, "back", data.inventory and S("Back to inventory") or S("Close map"))
 	local formspec = table.concat(fs)
 	data.last_render = core.get_us_time()
@@ -239,6 +275,15 @@ core.register_chatcommand("map", {
 		return open(player, false)
 	end,
 })
+
+-- Stock clients send the Zoom control to the server. The launcher binds it
+-- to M, and a held spyglass retains its usual zoom behaviour.
+controls.register_on_press(function(player, key)
+	if key == "zoom" and not views[player] and allowed(player)
+		and player:get_wielded_item():get_name() ~= "mcl_spyglass:spyglass" then
+		open(player, false)
+	end
+end)
 
 local function queue_update(player, data, delay)
 	if data.pending then return end
@@ -284,6 +329,13 @@ core.register_on_player_receive_fields(function(player, form, fields)
 	local x_event = core.explode_scrollbar_event(fields.pan_x)
 	local z_event = core.explode_scrollbar_event(fields.pan_z)
 	local n = steps[data.zoom] * 12
+	for field, other_name in pairs(data.visible_players) do
+		if fields[field] then
+			data.selected_player = other_name
+			queue_update(player, data, 0)
+			return true
+		end
+	end
 	if fields.centre then
 		data.dimension = nil
 	elseif fields.zoom_in then

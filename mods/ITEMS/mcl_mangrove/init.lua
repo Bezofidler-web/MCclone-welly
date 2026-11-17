@@ -111,7 +111,8 @@ core.register_node("mcl_mangrove:mangrove_roots", {
 		"mcl_mangrove_roots_side.png",
 	},
 	paramtype = "light",
-	drawtype = "allfaces_optional",
+	drawtype = "allfaces",
+	use_texture_alpha = "clip",
 	groups = {
 		handy = 1, hoey = 1, shearsy = 1, axey = 1, swordy = 1, dig_by_piston = 0,
 		flammable = 10, fire_encouragement = 30, fire_flammability = 60,
@@ -301,7 +302,7 @@ local wlroots = {
 		"mcl_mangrove_roots_side.png",
 	},
 	sounds = mcl_sounds.node_sound_water_defaults(),
-	drawtype = "allfaces_optional",
+	drawtype = "allfaces",
 	use_texture_alpha = "blend",
 	is_ground_content = false,
 	paramtype = "light",

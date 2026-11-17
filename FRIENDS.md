@@ -255,13 +255,19 @@ its Animalia atlas and its egg can use the Java 26.3 art. [Luanti texture pack g
 
 | Profile | What it shows |
 | --- | --- |
-| `Fast` | Shorter draw distance, flat clouds and opaque leaves |
+| `Fast` | Shorter draw distance, flat clouds and see-through leaves |
 | `Fancy` | Longer draw distance, 3D clouds and see-through leaves |
+| `Basic` | Custom colour grading, nearby sun shadows, subtle bloom, moving foliage and water |
 | `Vibrant` | Dynamic sun shadows, light shafts, gentle bloom and simulated sky reflections on water |
 
-Each profile uses a separate client config in `local`. All three profiles use the
+Each profile uses a separate client config in `local`. All profiles use the
 imported Java 26.3 pack. To try the updated graphics preset alongside an existing config, pass
 `-Config .\local\vibrant-updated.conf` on launch.
+
+Use `-Profile Basic` to load the Luanti colour shader inspired by Sildur’s Basic.
+It adds cool shadows, warmer highlights and a colour boost for muted surfaces.
+Luanti handles shadows, bloom and animation. The other profiles use Luanti’s
+default colour pass.
 
 **Multiplayer → Direct Connect** opens **Join a Server**. Paste an address and port together
 (`hostname:port` or `[IPv6]:port`), or enter them in separate fields. The
@@ -346,10 +352,12 @@ effect after the host restarts the server with this build.
   **V** cycles the map zooms and off in the stock 5.18 key bindings. The
   centre arrow shows your heading, and visible nearby players have markers.
   **Options → HUD Settings → Minimap** toggles the map.
-- Open **Map** from either inventory, or type `/map`, for a larger world
-  view. Pan with either scrollbar or the direction buttons, and use the
-  zoom controls to change the scale. Terrain edits inside the view refresh
-  the map. Blank areas have no loaded terrain in the displayed region.
+- Press **M** with the launcher presets, open **Map** from either inventory,
+  or type `/map` for the full-screen world view. Select a nearby player
+  marker to see their name, live coordinates and distance. The shortcut
+  uses Luanti's Zoom binding, which still zooms while holding a spyglass.
+  Pan with either scrollbar or the direction buttons. Blank areas have no
+  loaded terrain at the displayed depth.
 - Open **Players** from either inventory, or use `/players`, for the online
   roster. **Commands** or `/commandbar` opens the command field. The server
   checks the same privileges as commands entered in chat.

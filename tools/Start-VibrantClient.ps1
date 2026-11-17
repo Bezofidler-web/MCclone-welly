@@ -3,7 +3,7 @@
 param(
     [string]$LuantiExe,
     [string]$Config,
-    [ValidateSet('Fast', 'Fancy', 'Vibrant')][string]$Profile = 'Vibrant',
+    [ValidateSet('Fast', 'Fancy', 'Basic', 'Vibrant')][string]$Profile = 'Vibrant',
     [switch]$PrepareOnly,
     [switch]$TitleScreen,
     [switch]$JavaUi,
@@ -63,11 +63,21 @@ if (-not (Test-Path -LiteralPath $configPath)) {
     $legacyRange = @{ Fast = 112; Fancy = 192; Vibrant = 176 }[$Profile]
     $lines = @(Get-Content -LiteralPath $configPath)
     $rangePattern = '^\s*viewing_range\s*=\s*' + $legacyRange + '\s*$'
-    if ($lines -match $rangePattern) {
+    if ($legacyRange -and $lines -match $rangePattern) {
         $newRange = (Select-String -LiteralPath $template -Pattern '^viewing_range\s*=').Line
         Set-ConfigLines ($lines -replace $rangePattern, $newRange)
     }
-    $defaults = foreach ($setting in 'display_gamma', 'pitch_move', 'viewing_range') {
+    if ($Profile -eq 'Fast') {
+        $lines = @(Get-Content -LiteralPath $configPath)
+        $opaqueLeaves = '^\s*leaves_style\s*=\s*opaque\s*$'
+        $oldEffects = '^\s*(enable_waving_water|enable_post_processing)\s*=\s*false\s*$'
+        if ($lines -match "$opaqueLeaves|$oldEffects") {
+            $updated = $lines -replace $opaqueLeaves, 'leaves_style = fancy'
+            Set-ConfigLines ($updated -replace $oldEffects, '$1 = true')
+        }
+    }
+    $defaults = foreach ($setting in 'display_gamma', 'pitch_move', 'viewing_range', 'leaves_style',
+        'enable_waving_leaves', 'enable_waving_water', 'enable_post_processing') {
         $pattern = "^\s*$setting\s*="
         if (-not (Select-String -LiteralPath $configPath -Pattern $pattern -Quiet)) {
             (Select-String -LiteralPath $template -Pattern $pattern).Line
@@ -80,6 +90,7 @@ if (-not (Test-Path -LiteralPath $configPath)) {
 
 $uiDefaults = [ordered]@{
     menu_clouds = 'false'
+    keymap_zoom = 'SYSTEM_SCANCODE_16'
     console_color = '(0,0,0)'
     console_alpha = '128'
 }
@@ -122,6 +133,27 @@ $existingTextures = @($lines -match $texturePattern)
 $javaTextureSetting = 'texture_path = ' + (($javaPack, $loadingPack) -join [IO.Path]::PathSeparator)
 if ($existingTextures.Count -ne 1 -or $existingTextures[0] -cne $javaTextureSetting) {
     Set-ConfigLines (@($lines -notmatch $texturePattern) + $javaTextureSetting)
+}
+
+$shaderPath = Join-Path $game 'shaders/basic'
+$shaderSetting = "shader_path = $shaderPath"
+if ($Profile -eq 'Basic') {
+    if (!(Test-Path -LiteralPath (Join-Path $shaderPath 'second_stage/opengl_fragment.glsl') -PathType Leaf)) {
+        throw "The Basic renderer is missing from $shaderPath."
+    }
+    $shaderPattern = '^\s*shader_path\s*='
+    $processingPattern = '^\s*enable_post_processing\s*='
+    $processingSetting = 'enable_post_processing = true'
+    $lines = @(Get-Content -LiteralPath $configPath)
+    $existing = @($lines -match "$shaderPattern|$processingPattern")
+    if ($existing.Count -ne 2 -or $shaderSetting -cnotin $existing -or $processingSetting -cnotin $existing) {
+        Set-ConfigLines (@($lines -notmatch "$shaderPattern|$processingPattern") + $shaderSetting + $processingSetting)
+    }
+} else {
+    $lines = @(Get-Content -LiteralPath $configPath)
+    if ($shaderSetting -in $lines) {
+        Set-ConfigLines ($lines | Where-Object { $_ -ne $shaderSetting })
+    }
 }
 
 if ($TitleScreen -or -not $PrepareOnly) {

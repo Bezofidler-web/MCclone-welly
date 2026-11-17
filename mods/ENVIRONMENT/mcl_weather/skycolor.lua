@@ -56,7 +56,7 @@ local standard_lighting = {
 		speed_dark_bright = 1500,
 		speed_bright_dark = 700,
 	},
-	saturation = 1.0,
+	saturation = 1.08,
 }
 
 local vibrant_lighting = {
@@ -64,7 +64,7 @@ local vibrant_lighting = {
 		shadows = { intensity = 0.45, tint = "#39485D" },
 		volumetric_light = { strength = 0.20 },
 		bloom = { intensity = 0.045, radius = 1, strength_factor = 1.0 },
-		saturation = 1.06,
+		saturation = 1.14,
 	},
 	nether = {
 		shadows = { intensity = 0, tint = "#000000" },
