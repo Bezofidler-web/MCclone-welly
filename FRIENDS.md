@@ -221,6 +221,36 @@ A comparator gives one signal strength for each occupied or disabled slot.
 Recipes that rely on Mineclonia's manual crafting callbacks, such as written
 book copying, still use the crafting table.
 
+## Expedition sites and mounts
+
+Expedition sites appear as new terrain generates. Explore beyond areas the
+world has already generated to find them.
+
+| Site | What to look for |
+| --- | --- |
+| Caravan waystation | A roadside stable with supplies, settlement charts and directions to other known stops |
+| Cliffside air dock | A ridge landing platform with a Happy Ghast harness counter and directions to other known docks |
+| Mountain rescue shelter | Beds, emergency supplies and a campfire you can light as a signal |
+| Overgrown glasshouse | Broken glass, irrigated crops and supplies to repair and replant it |
+| Flooded observatory | A submerged entrance, rising currents and dry ledges inside |
+| Tide-locked smuggler cave | A flooded cache behind a gate. Read the clue beside the three valves |
+| Buried canal lock | An underground boat channel. Bring three iron ingots to repair its winch |
+| Nether ferry piers | A lantern-marked lava crossing with strider gear and a vault at the far pier |
+| Abandoned lift mine | Repair the surface panel with four iron ingots, then choose one of three stops. The emergency ladder reaches all three |
+| Storm lighthouse | Climb to the lantern room and repair the coastal signal with three copper ingots |
+| End relay tower | Fit an ender pearl to light the relay. Use it again for the bearing and distance to another restored tower |
+| Ruined bathhouse | Use the basin controls to restore the water and release the seal on the rear room |
+| Floodplain village | Land a boat at the lower dock, then explore the stilt houses and their rooftop walkways |
+| Quarry workshop | Repair the cutter with three iron ingots, then feed it andesite, diorite, granite or stone bricks for decorative blocks |
+
+Name a mount with a name tag. While driving it, or while looking at your own
+named mount, use `/mounts add` to register it. `/mounts` shows private records of
+its gear and last known position. `/mounts remove <ID>` removes the record.
+Positions update while the mount is loaded.
+
+Watch for a rare zombie rider on a zombie horse on plains or savannah at night.
+Remove the rider before trying to tame and saddle the horse.
+
 ## Apply Minecraft Java textures
 
 Use the client JAR from your own Minecraft Java installation. This example uses

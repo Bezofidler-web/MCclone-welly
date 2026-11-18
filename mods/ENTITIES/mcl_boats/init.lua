@@ -112,18 +112,10 @@ local function set_attach(boat)
 end
 
 local function remove_seat(self)
-	if self._passenger_seat and self._passenger_seat:get_luaentity() then
-		self._passenger_seat:remove()
-		self._passenger_seat = nil
-	end
-end
-
-local function set_double_attach(boat)
-	attach_driver(boat)
-	if boat._passenger:is_player() then
-		attach_passenger(boat)
-	else
-		attach_non_player_passenger(boat)
+	local seat = self._passenger_seat
+	self._passenger_seat = nil
+	if seat and seat:is_valid() then
+		seat:remove()
 	end
 end
 
@@ -138,8 +130,13 @@ local function attach_object(self, obj)
 		else
 			self._passenger = self._driver
 			self._driver = obj
+			attach_driver(self)
 		end
-		set_double_attach(self)
+		if self._passenger:is_player() then
+			attach_passenger(self)
+		else
+			attach_non_player_passenger(self)
+		end
 	else
 		self._driver = obj
 		if self._inv_id then
@@ -158,7 +155,8 @@ local function attach_object(self, obj)
 		mcl_player.players[obj].attached = true
 		core.after(0.2, function(name)
 			local player = core.get_player_by_name(name)
-			if player then
+			local parent = player and player:get_attach()
+			if parent and (parent == self.object or parent == self._passenger_seat) then
 				mcl_player.player_set_animation(player, "sit" , 30)
 			end
 		end, name)
@@ -171,7 +169,25 @@ end
 
 local function detach_object(obj, change_pos)
 	if change_pos then change_pos = vector.new(0, 0.2, 0) end
+	mcl_attachments.remove_attachment_entity(obj)
 	return mcl_util.detach_object(obj, change_pos)
+end
+
+local function release_riders(self)
+	local driver, passenger = self._driver, self._passenger
+	self._driver = nil
+	self._passenger = nil
+	self._csm_driving = false
+	if driver and driver:get_attach() == self.object then
+		detach_object(driver)
+	end
+	if passenger and passenger:is_valid() then
+		local parent = passenger:get_attach()
+		if not parent or parent == self.object or parent == self._passenger_seat then
+			detach_object(passenger)
+		end
+	end
+	remove_seat(self)
 end
 
 --
@@ -207,11 +223,16 @@ local boat = {
 	_mcl_fishing_hookable = true,
 	_mcl_fishing_reelable = true,
 	on_detach_child = function(self, child)
-		if self._driver and core.is_player(child) and core.is_player(self._driver) and self._driver == child then
-			detach_object(self._driver)
+		if self._driver == child then
 			self._driver = nil
+			self._csm_driving = false
+			mcl_attachments.remove_attachment_entity(child)
+			core.after(0, function()
+				if child:is_valid() and not child:get_attach() then mcl_util.detach_object(child) end
+			end)
 		end
 	end,
+	on_deactivate = release_riders,
 	_csm_driving = false,
 }
 
@@ -229,7 +250,6 @@ function boat.on_rightclick(self, clicker)
 			rotation = vector.zero (),
 		})
 	else
-		self._csm_driving = false
 		attach_object (self, clicker)
 	end
 end
@@ -296,15 +316,7 @@ function boat:on_death(killer)
 	else
 		core.add_item(self.object:get_pos(), self._itemstring)
 	end
-	if self._driver then
-		detach_object(self._driver)
-	end
-	if self._passenger then
-		detach_object(self._passenger)
-	end
-	remove_seat(self)
-	self._driver = nil
-	self._passenger = nil
+	release_riders(self)
 end
 
 ---@diagnostic disable-next-line: unused-local
@@ -369,15 +381,22 @@ function boat:on_step(dtime, moveresult)
 		end
 	end
 
-	local had_passenger = self._passenger
-
 	self._driver = check_object(self._driver)
 	self._passenger = check_object(self._passenger)
+	if not self._driver then self._csm_driving = false end
+	if not self._passenger then remove_seat(self) end
 
 	if self._passenger then
-		if not self._driver then
+		local parent = self._passenger:get_attach()
+		if not parent or (parent ~= self.object and parent ~= self._passenger_seat) then
+			if not parent then detach_object(self._passenger) end
+			self._passenger = nil
+			remove_seat(self)
+		elseif not self._driver then
 			self._driver = self._passenger
 			self._passenger = nil
+			set_attach(self)
+			remove_seat(self)
 		else
 			local ctrl = self._passenger:get_player_control()
 			if ctrl and ctrl.sneak then
@@ -415,9 +434,6 @@ function boat:on_step(dtime, moveresult)
 			return
 		end
 
-		if had_passenger and not self._passenger then
-			set_attach(self)
-		end
 		local yaw = self.object:get_yaw()
 		if ctrl and ctrl.up then
 			-- Forwards

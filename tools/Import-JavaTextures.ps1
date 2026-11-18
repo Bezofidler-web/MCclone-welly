@@ -236,6 +236,59 @@ function Write-FoliageTexture([IO.Compression.ZipArchive]$Client, [IO.Compressio
     return $true
 }
 
+function Write-TrimmedAtlas([IO.Compression.ZipArchiveEntry]$Entry, $SourceSize, $DestinationSize, [string]$Path) {
+    if (-not $IsWindows -or $SourceSize.Width -ne $DestinationSize.Width -or
+        $SourceSize.Height -ne $DestinationSize.Height * 2) { return $false }
+
+    Add-Type -AssemblyName System.Drawing.Common
+    $stream = $Entry.Open()
+    try {
+        $source = [Drawing.Bitmap]::new($stream)
+        try {
+            # The adult pig's newer atlas keeps the existing UVs in the top
+            # half. Reject future layouts that use the extra space.
+            for ($y = $DestinationSize.Height; $y -lt $SourceSize.Height; $y++) {
+                for ($x = 0; $x -lt $SourceSize.Width; $x++) {
+                    if ($source.GetPixel($x, $y).A -ne 0) { return $false }
+                }
+            }
+            $bounds = [Drawing.Rectangle]::new(0, 0, $DestinationSize.Width, $DestinationSize.Height)
+            $texture = $source.Clone($bounds, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+            try {
+                $texture.Save($Path, [Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+                $texture.Dispose()
+            }
+        } finally {
+            $source.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    return $true
+}
+
+function Rename-PackDirectory([string]$Path, [string]$NewName, [string]$OutputRoot) {
+    $directory = Get-Item -LiteralPath $Path -Force
+    if (-not $directory.PSIsContainer -or $directory.Parent.FullName -ne $OutputRoot -or
+        ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        [IO.Path]::GetFileName($NewName) -ne $NewName) {
+        throw "The texture pack rename must stay inside $OutputRoot."
+    }
+    $destination = Join-Path $OutputRoot $NewName
+    for ($attempt = 0; ; $attempt++) {
+        try {
+            Rename-Item -LiteralPath $directory.FullName -NewName $NewName
+            return
+        } catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($attempt -ge 3 -or (Test-Path -LiteralPath $destination) -or
+                -not (Test-Path -LiteralPath $directory.FullName -PathType Container)) { throw }
+            # A newly written texture can briefly keep the directory busy.
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 $game = Split-Path $PSScriptRoot -Parent
 $assets = 'assets/minecraft/textures/'
 $jarPath = (Resolve-Path -LiteralPath $ClientJar).Path
@@ -288,7 +341,7 @@ try {
     $explicit = @{}
     foreach ($row in Import-Csv -LiteralPath (Join-Path $PSScriptRoot 'Java_Texture_Overrides.csv')) {
         if (-not $stock.ContainsKey($row.Target)) { throw "Unknown Mineclonia texture in supplemental mapping: $($row.Target)" }
-        if ($row.Layout -and $row.Layout -notin 'vertical', 'proportional', 'scaled', 'liquid', 'foliage') {
+        if ($row.Layout -and $row.Layout -notin 'vertical', 'proportional', 'scaled', 'liquid', 'foliage', 'trim_bottom') {
             throw "Unknown texture layout for $($row.Target): $($row.Layout)"
         }
         $explicit[$row.Target] = $row.Layout
@@ -296,6 +349,7 @@ try {
     }
 
     [void][IO.Directory]::CreateDirectory($outputPath)
+    $outputRoot = (Get-Item -LiteralPath $outputPath -Force).FullName
     $staging = Join-Path $outputPath ('.java-textures-' + [Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($staging)
     $imported = [Collections.Generic.List[object]]::new()
@@ -311,6 +365,7 @@ try {
         $sourceEntry = $null
         $reason = 'absent from this Java version'
         $layout = $explicit[$target]
+        $trimmed = $false
         foreach ($path in $paths) {
             $entry = $java.GetEntry($path)
             if (-not $entry -or $entry.Length -gt 8MB) { continue }
@@ -334,6 +389,15 @@ try {
                 continue
             }
             $sameSize = $sourceSize.Width -eq $destinationSize.Width -and $sourceSize.Height -eq $destinationSize.Height
+            if ($layout -eq 'trim_bottom' -and -not $sameSize) {
+                if (Write-TrimmedAtlas $entry $sourceSize $destinationSize (Join-Path $staging $target)) {
+                    $sourceEntry = $entry
+                    $trimmed = $true
+                    break
+                }
+                $reason = 'atlas does not have a compatible transparent bottom'
+                continue
+            }
             $sameShape = [long]$sourceSize.Width * $destinationSize.Height -eq [long]$sourceSize.Height * $destinationSize.Width
             $frameStrip = $layout -eq 'vertical' -and $sourceSize.Width -eq $destinationSize.Width -and
                 $sourceSize.Height % $sourceSize.Width -eq 0 -and $destinationSize.Height % $destinationSize.Width -eq 0 -and
@@ -356,6 +420,8 @@ try {
             $imported.Add([ordered]@{ target = $target; source = $sourcePath; layout = 'liquid_strip' })
         } elseif ($layout -eq 'foliage') {
             $imported.Add([ordered]@{ target = $target; source = $sourcePath; layout = 'foliage_tint' })
+        } elseif ($trimmed) {
+            $imported.Add([ordered]@{ target = $target; source = $sourcePath; layout = 'trimmed_atlas' })
         } else {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($sourceEntry, (Join-Path $staging $target))
             $imported.Add([ordered]@{ target = $target; source = $sourcePath })
@@ -403,17 +469,18 @@ try {
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $staging $markerName) -Encoding utf8NoBOM
 
     if ([IO.Directory]::Exists($pack)) {
-        $backup = $pack + '.previous-' + [Guid]::NewGuid().ToString('N')
-        [IO.Directory]::Move($pack, $backup)
+        $backupName = $packName + '.previous-' + [Guid]::NewGuid().ToString('N')
+        $backup = Join-Path $outputRoot $backupName
+        Rename-PackDirectory $pack $backupName $outputRoot
         try {
-            [IO.Directory]::Move($staging, $pack)
+            Rename-PackDirectory $staging $packName $outputRoot
         } catch {
-            [IO.Directory]::Move($backup, $pack)
+            Rename-PackDirectory $backup $packName $outputRoot
             throw
         }
         Write-Host "Previous pack kept at $backup"
     } else {
-        [IO.Directory]::Move($staging, $pack)
+        Rename-PackDirectory $staging $packName $outputRoot
     }
     $staging = $null
     Write-Host "Imported $($imported.Count) playable overrides from Java $version. $($skipped.Count) mappings kept the game defaults."

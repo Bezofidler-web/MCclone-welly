@@ -33,6 +33,7 @@ local strider = {
 	textures = {
 		{
 			"extra_mobs_strider.png",
+			"blank.png", -- Saddle material stays transparent until equipped.
 		},
 	},
 	visual_size = {

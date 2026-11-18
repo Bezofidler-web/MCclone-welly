@@ -6,6 +6,12 @@ local lvm_buffer = {}
 local seed = core.get_mapgen_setting("seed")
 
 local logging = core.settings:get_bool("mcl_logging_mapgen",false)
+local register_engine_generator = core.register_on_generated
+
+-- Unlike the legacy tile generators, this runs for native levelgen too.
+function mcl_mapgen_core.register_engine_generator(callback)
+	register_engine_generator(callback)
+end
 
 local function roundN(n, d)
 	if type(n) ~= "number" then return n end

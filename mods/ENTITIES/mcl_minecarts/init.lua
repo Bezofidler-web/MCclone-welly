@@ -9,18 +9,26 @@ mcl_minecarts.check_float_time = 15
 dofile(mcl_minecarts.modpath.."/functions.lua")
 dofile(mcl_minecarts.modpath.."/rails.lua")
 
-local function detach_driver(self)
-	if not self._driver then
-		return
-	end
-	local player = core.get_player_by_name(self._driver)
+local function clear_driver(self)
 	self._driver = nil
 	self._start_pos = nil
+end
+
+local function current_driver(self)
+	if not self._driver then return end
+	local player = core.get_player_by_name(self._driver)
+	if player and player:get_attach() == self.object then
+		return player
+	end
+	clear_driver(self)
+end
+
+local function detach_driver(self)
+	local player = current_driver(self)
+	clear_driver(self)
 	if player then
-		mcl_player.players[player].attached = nil
-		player:set_detach()
-		player:set_eye_offset({x=0, y=0, z=0},{x=0, y=0, z=0})
-		mcl_player.player_set_animation(player, "stand" , 30)
+		mcl_attachments.remove_attachment_entity(player)
+		mcl_util.detach_object(player)
 	end
 end
 
@@ -246,20 +254,23 @@ local function register_entity(entity_id, mesh, textures, drop, on_rightclick, o
 
 	local passenger_attach_position = vector.new(0, -1.75, 0)
 
+	function cart:on_detach_child(child)
+		if not self._driver or not child:is_player() or child:get_player_name() ~= self._driver then return end
+		clear_driver(self)
+		mcl_attachments.remove_attachment_entity(child)
+		core.after(0, function()
+			if child:is_valid() and not child:get_attach() then mcl_util.detach_object(child) end
+		end)
+	end
+
 	function cart:on_step(dtime)
 		hopper_take_item(self)
 
-		local ctrl, player = nil, nil
-		if self._driver then
-			player = core.get_player_by_name(self._driver)
-			if player then
-				ctrl = player:get_player_control()
-				-- player detach
-				if ctrl.sneak then
-					detach_driver(self)
-					return
-				end
-			end
+		local player = current_driver(self)
+		local ctrl = player and player:get_player_control()
+		if ctrl and ctrl.sneak then
+			detach_driver(self)
+			return
 		end
 
 		local vel = self.object:get_velocity()
@@ -315,8 +326,7 @@ local function register_entity(entity_id, mesh, textures, drop, on_rightclick, o
 					if self._old_pos then
 						self.object:set_pos(self._old_pos)
 					end
-					mcl_player.players[player].attached = nil
-					player:set_detach()
+					detach_driver(self)
 				end
 
 				-- Explode if already ignited
@@ -748,9 +758,10 @@ register_minecart(
 			return
 		end
 		local name = clicker:get_player_name()
-		if self._driver and name == self._driver then
+		local driver = current_driver(self)
+		if driver == clicker then
 			detach_driver(self)
-		elseif not self._driver then
+		elseif not driver and not clicker:get_attach() then
 			self._driver = name
 			self._start_pos = self.object:get_pos()
 			mcl_player.players[clicker].attached = true
@@ -758,9 +769,9 @@ register_minecart(
 			mcl_attachments.spawn_attachment_entity (clicker)
 			core.after(0.2, function(name)
 				local player = core.get_player_by_name(name)
-				if player then
+				if player and player:get_attach() == self.object then
 					mcl_player.player_set_animation(player, "sit" , 30)
-					mcl_title.set(clicker, "actionbar", {text=S("Sneak to dismount"), color="white", stay=60})
+					mcl_title.set(player, "actionbar", {text=S("Sneak to dismount"), color="white", stay=60})
 				end
 			end, name)
 		end

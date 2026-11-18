@@ -92,6 +92,7 @@ globals = {
 	"mcl_end_island",
 	"mcl_entity_invs",
 	"mcl_events",
+	"mcl_expeditions",
 	"mcl_experience",
 	"mcl_explosions",
 	"mcl_falling_nodes",

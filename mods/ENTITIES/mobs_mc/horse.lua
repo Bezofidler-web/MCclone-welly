@@ -1230,7 +1230,17 @@ mcl_mobs.register_mob("mobs_mc:skeleton_horse", skeleton_horse)
 
 mcl_mobs.register_mob("mobs_mc:zombie_horse", table.merge(skeleton_horse, {
 	description = S("Zombie Horse"),
+	_spawn_category = "monster",
 	textures = {{"blank.png", "mobs_mc_horse_zombie.png", "blank.png"}},
+	follow = {"mcl_mushrooms:mushroom_red"},
+	on_rightclick = function(self, player)
+		if self._jockey_rider then return end
+		self.persistent = true
+		return horse.on_rightclick(self, player)
+	end,
+	_food_items = {
+		["mcl_mushrooms:mushroom_red"] = {2.0, 0, 3},
+	},
 	drops = {
 		{
 			name = "mcl_mobitems:rotten_flesh",
@@ -1250,6 +1260,7 @@ mcl_mobs.register_mob("mobs_mc:zombie_horse", table.merge(skeleton_horse, {
 	},
 	ai_functions = {
 		mob_class.check_frightened,
+		horse_maybe_tame,
 		mob_class.check_pace,
 	},
 }))
@@ -1415,3 +1426,35 @@ mcl_mobs.register_spawner (horse_spawner_savannah)
 mcl_mobs.register_spawner (donkey_spawner)
 mcl_mobs.register_spawner (donkey_spawner_savannah)
 mcl_mobs.register_spawner (donkey_spawner_meadow)
+
+local monster_spawner = mobs_mc.monster_spawner
+local zombie_horse_spawner = table.merge (monster_spawner, {
+	name = "mobs_mc:zombie_horse",
+	weight = 4,
+	pack_min = 1,
+	pack_max = 1,
+	biomes = {"Plains", "SunflowerPlains", "#is_savannah"},
+})
+
+function zombie_horse_spawner:test_spawn_position (spawn_pos, node_pos, data, cache, flag)
+	local time = core.get_timeofday ()
+	return (time < 0.2 or time > 0.8)
+		and mcl_weather.is_outdoor (spawn_pos)
+		and monster_spawner.test_spawn_position (self, spawn_pos, node_pos, data, cache, flag)
+end
+
+function zombie_horse_spawner:spawn (pos, index, data)
+	local mount = monster_spawner.spawn (self, pos, index, data)
+	if not mount or not mount:is_valid () or index == 0 then return mount end
+
+	local rider = core.add_entity (pos, "mobs_mc:zombie",
+		core.serialize ({_no_chicken_jockeys = true}))
+	if rider and rider:is_valid () then
+		local zombie = rider:get_luaentity ()
+		zombie:set_wielditem (ItemStack ("mcl_tools:sword_iron"))
+		zombie:jock_to_existing (mount, "", vector.new (0, 4.17, -1.75))
+	end
+	return mount
+end
+
+mcl_mobs.register_spawner (zombie_horse_spawner)

@@ -86,7 +86,7 @@ function mob_class:attach (player, force_server_side)
 
 	core.after(0.2, function(name)
 		local player = core.get_player_by_name(name)
-		if player then
+		if player and player:get_attach() == self.object then
 			mcl_player.player_set_animation(player, "sit_mount" , 30)
 		end
 	end, player:get_player_name())
@@ -290,6 +290,13 @@ function mob_class:on_detach_child (child)
 	if self.driver == child then
 		self.driver = nil
 		self:driver_detached (child, false)
+		-- Luanti invokes this before completing a direct transfer.
+		core.after (0, function ()
+			local state = mcl_player.players[child]
+			if state and state.attached and child:is_valid () and not child:get_attach () then
+				mcl_util.detach_object (child)
+			end
+		end)
 	end
 end
 

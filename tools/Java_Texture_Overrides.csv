@@ -147,7 +147,7 @@ mobs_mc_chicken.png,entity/chicken/chicken_temperate.png|entity/chicken/temperat
 mobs_mc_cow.png,entity/cow/cow_temperate.png|entity/cow/temperate_cow.png|entity/cow/cow.png
 mobs_mc_mooshroom.png,entity/cow/mooshroom_red.png|entity/cow/red_mooshroom.png
 mobs_mc_mooshroom_brown.png,entity/cow/mooshroom_brown.png|entity/cow/brown_mooshroom.png
-mobs_mc_pig.png,entity/pig/pig_temperate.png|entity/pig/temperate_pig.png|entity/pig/pig.png
+mobs_mc_pig.png,entity/pig/pig_temperate.png|entity/pig/temperate_pig.png|entity/pig/pig.png,trim_bottom
 mobs_mc_pig_saddle.png,entity/equipment/pig_saddle/saddle.png|entity/pig/pig_saddle.png
 extra_mobs_dolphin.png,entity/dolphin/dolphin.png|entity/dolphin.png
 mobs_mc_bee.png,entity/bee/bee.png
